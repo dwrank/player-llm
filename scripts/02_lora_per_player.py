@@ -237,7 +237,7 @@ def train_player(
         gradient_checkpointing_kwargs={"use_reentrant": False},
         bf16=True,
         fp16=False,
-        optim="paged_adamw_8bit",
+        optim="adamw_bnb_8bit",
 
         learning_rate=args.lr,
         lr_scheduler_type="cosine",
