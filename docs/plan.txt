@@ -1,0 +1,197 @@
+
+  # Player-LLM: Project Plan                                                  
+                                                                              
+  Fine-tune Qwen2.5-1.5B-Instruct to play poker in the style of each player   
+  from the Pluribus dataset (10,000 six-handed NLH hands, Pluribus AI vs 5    
+  pros).                                                                      
+                                                                              
+  ## Goals                                                                    
+                                                                              
+  • One model that plays convincing poker                                     
+  • Swap a small LoRA adapter at runtime to imitate a specific player's style 
+  • Runs on 8–16 GB GPU, CPU, or a tablet (via 4-bit quantization)            
+                                                                              
+  ## Players in the Dataset                                                   
+                                                                              
+   Player                 | Decision points        | Adapter viable?          
+  ------------------------|------------------------|------------------------  
+   Pluribus               | 15,169                 | Yes                      
+   MrBlue                 | 15,015                 | Yes                      
+   MrOrange               | 10,765                 | Yes                      
+   Bill                   | 10,348                 | Yes                      
+   MrPink                 | 9,134                  | Yes                      
+   Eddie                  | 8,582                  | Yes                      
+   MrWhite                | 6,799                  | Yes                      
+   Budd                   | 3,653                  | Marginal                 
+   MrBlonde               | 3,555                  | Marginal                 
+   Joe                    | 2,203                  | Joint model only         
+   Hattori                | 2,090                  | Joint model only         
+   MrBrown                | 2,079                  | Joint model only         
+   ORen                   | 1,158                  | Joint model only         
+   Gogo                   | 806                    | Joint model only         
+                                                                              
+  --------                                                                    
+                                                                              
+  ## Data Sources                                                             
+                                                                              
+  ### Primary: Pluribus dataset                                               
+                                                                              
+  • Path: /data/poker/phh-dataset/data/pluribus/                              
+  • 10,000 hands, all hole cards visible, 91,356 total decision points        
+  • Six-max NLH, $50/$100 blinds, $10,000 starting stacks                     
+                                                                              
+  ### Supplementary: Pro hands                                                
+                                                                              
+  • /data/poker/phh-dataset/data/dwan-ivey-2009.phh — 1 NLH hand              
+  • /data/poker/phh-dataset/data/wsop/2023/43/5/ — 11 NLH hands (rest are     
+  mixed games)                                                                
+  • Include in Stage 1 SFT, negligible statistical impact                     
+                                                                              
+  ### Pretraining corpus: HandHQ                                              
+                                                                              
+  • Path: /data/poker/phh-dataset/data/handhq/                                
+  • ~21M hands, all hole cards obfuscated (????)                              
+  • Filter to 1000NLH, 600NLH, 400NLH stake directories only (~6 directories) 
+  • Use for Stage 0 domain-adaptive pretraining only                          
+                                                                              
+  --------                                                                    
+                                                                              
+  ## Three-Stage Training Pipeline                                            
+                                                                              
+  ### Stage 0 — Domain-Adaptive Pretraining (DAPT)                            
+                                                                              
+  **What:** Run the standard next-token prediction objective on raw PHH action
+  sequences from HandHQ. No instruction template. No hole cards needed.       
+                                                                              
+  **Why:** The base Qwen model has minimal poker exposure. This teaches it:   
+                                                                              
+  • Valid action syntax (f, cc, cbr, sm)                                      
+  • Bet sizing distributions relative to pot and stacks                       
+  • Street-by-street flow (preflop → flop → turn → river)                     
+  • Stack-to-pot ratios that typically trigger shoves                         
+                                                                              
+  **Input format:** Serialized PHH fields as plain text, one hand per sample: 
+                                                                              
+    blinds=[50,100] stacks=[1200,980,1050,990,1010,970]                       
+    p3 cbr 300 | p4 f | p5 cc | p6 f | p1 f | p2 cc                           
+    board Jc7d2h | p2 cc | p3 cbr 200 | p2 f                                  
+                                                                              
+  **Volume:** 500K–1M hands from 400NLH+ stakes. Stop there; diminishing      
+  returns.                                                                    
+                                                                              
+  **Script:** scripts/00_dapt.py                                              
+  **Output checkpoint:** /data/models/qwen2.5-1.5b-instruct/dapt/             
+                                                                              
+  --------                                                                    
+                                                                              
+  ### Stage 1 — Supervised Fine-Tuning (SFT), All Players Joint               
+                                                                              
+  **What:** Instruction fine-tune on all 91K Pluribus decision points with    
+  player                                                                      
+  identity in the system prompt.                                              
+                                                                              
+  **Why joint (not separate per player):** Thin players (800–2,000 examples)  
+  would overfit before learning poker. Joint training shares poker knowledge; 
+  the player name conditions the style.                                       
+                                                                              
+  **Training method:** QLoRA (4-bit base + LoRA r=32, alpha=64) via           
+  trl.SFTTrainer                                                              
+                                                                              
+  **Input format:** Chat template (see data-format.md for full spec)          
+                                                                              
+  **Script:** scripts/01_sft.py                                               
+  **Output checkpoint:** /data/models/qwen2.5-1.5b-instruct/sft/              
+                                                                              
+  --------                                                                    
+                                                                              
+  ### Stage 2 — Per-Player LoRA Adapters                                      
+                                                                              
+  **What:** Starting from the Stage 1 checkpoint, fine-tune a separate small  
+  LoRA                                                                        
+  adapter for each player with sufficient data (>5K examples).                
+                                                                              
+  **Why:** Separates individual style from shared poker knowledge. Adapters   
+  are                                                                         
+  ~20–80 MB each and can be swapped at inference time without reloading the   
+  base                                                                        
+  model weights.                                                              
+                                                                              
+  **Training method:** LoRA r=16, alpha=32 (smaller than Stage 1 — we're      
+  tuning                                                                      
+  style, not knowledge)                                                       
+                                                                              
+  **Script:** scripts/02_lora_per_player.py                                   
+  **Output:** /data/models/qwen2.5-1.5b-instruct/adapters/<player_name>/      
+                                                                              
+  --------                                                                    
+                                                                              
+  ## Model                                                                    
+                                                                              
+  **Base model:** Qwen/Qwen2.5-1.5B-Instruct                                  
+  **Download location:** /data/models/qwen2.5-1.5b-instruct/base/             
+  **Context window:** 32K tokens (a full poker hand is ~300 tokens)           
+  **Quantization for inference:** 4-bit (Q4_K_M via bitsandbytes or llama.cpp 
+  GGUF)                                                                       
+                                                                              
+  ### Why Qwen2.5-1.5B-Instruct                                               
+                                                                              
+  • Best quality/size ratio at 1.5B parameters                                
+  • Strong structured reasoning despite small size                            
+  • ~3 GB in fp16, ~1 GB in 4-bit — runs on tablet or CPU                     
+  • Apache 2.0 license                                                        
+  • Excellent instruction-following out of the box                            
+                                                                              
+  --------                                                                    
+                                                                              
+  ## Directory Structure                                                      
+                                                                              
+    ~/dev/poker/                                                              
+    ├── .venv/                          # shared Python env (uv)              
+    ├── pyproject.toml                  # shared dependencies                 
+    └── player-llm/                                                           
+        ├── docs/                                                             
+        │   ├── plan.md                 # this file                           
+        │   ├── data-format.md          # PHH → training example conversion   
+        │   └── setup.md                # environment setup instructions      
+        ├── scripts/                                                          
+        │   ├── 00_dapt.py              # Stage 0: HandHQ pretraining         
+        │   ├── 01_sft.py               # Stage 1: joint SFT on Pluribus      
+        │   ├── 02_lora_per_player.py   # Stage 2: per-player adapters        
+        │   ├── download_model.py       # fetch Qwen2.5-1.5B from HuggingFace 
+        │   └── parse_phh.py            # PHH → dataset conversion utilities  
+        ├── src/player_llm/                                                   
+        │   ├── __init__.py                                                   
+        │   ├── phh_parser.py           # PHH file parsing                    
+        │   ├── game_state.py           # game state reconstruction           
+        │   ├── formatter.py            # game state → prompt string          
+        │   └── inference.py            # load model + adapter, get action    
+        └── data/                       # intermediate converted datasets     
+  (local)                                                                     
+                                                                              
+    /data/models/qwen2.5-1.5b-instruct/                                       
+    ├── base/                           # HuggingFace model download          
+    ├── dapt/                           # Stage 0 checkpoint                  
+    ├── sft/                            # Stage 1 checkpoint                  
+    └── adapters/                                                             
+        ├── pluribus/                                                         
+        ├── mrblue/                                                           
+        ├── mrorange/                                                         
+        ├── bill/                                                             
+        ├── mrpink/                                                           
+        ├── eddie/                                                            
+        └── mrwhite/                                                          
+                                                                              
+  --------                                                                    
+                                                                              
+  ## Evaluation                                                               
+                                                                              
+  • **Action accuracy:** % of held-out decisions where the model predicts the 
+  correct action type (fold/call/raise) — target >60% (random baseline ~33%)  
+  • **Bet size error:** Mean absolute error on raise amounts as fraction of   
+  pot                                                                         
+  • **Style divergence:** KL divergence between model's action distribution   
+  and                                                                         
+  target player's observed distribution per position and street               
+                                                                              
+  Hold out 10% of each player's hands for evaluation before training.         
+
