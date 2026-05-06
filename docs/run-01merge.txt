@@ -1,0 +1,34 @@
+
+Now rerun just the save step. Since training already finished and the adapter was saved successfully, you can skip retraining and call the merge directly:
+
+  cd ~/dev/poker && source .venv/bin/activate
+  python - <<'EOF'
+  import torch
+  from pathlib import Path
+  from peft import PeftModel
+  from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
+
+  base   = Path("/data/models/qwen2.5-1.5b-instruct/base")
+  adapter = Path("/data/models/qwen2.5-1.5b-instruct/sft/adapter")
+  out    = Path("/data/models/qwen2.5-1.5b-instruct/sft/merged")
+
+  bnb = BitsAndBytesConfig(load_in_4bit=True, bnb_4bit_quant_type="nf4",
+        bnb_4bit_compute_dtype=torch.bfloat16, bnb_4bit_use_double_quant=True)
+
+  print("Loading base + adapter...")
+  model = AutoModelForCausalLM.from_pretrained(str(base), quantization_config=bnb,
+          device_map="auto", dtype=torch.bfloat16)
+  model = PeftModel.from_pretrained(model, str(adapter))
+
+  print("Merging...")
+  merged = model.merge_and_unload()
+
+  out.mkdir(parents=True, exist_ok=True)
+  merged.save_pretrained(str(out), safe_serialization=True)
+  AutoTokenizer.from_pretrained(str(adapter)).save_pretrained(str(out))
+
+  size = sum(f.stat().st_size for f in out.glob("*.safetensors")) / 1e9
+  print(f"Done → {out}  ({size:.2f} GB, bf16)")
+  EOF
+
+  This loads the already-saved adapter on top of the base model and merges cleanly — no need to retrain. The fix is also in the script so future runs won't hit this error.

@@ -1,0 +1,43 @@
+❯ Describe the 01_sft and 02_lora_per_player tuning differences
+
+● What they share
+
+  Both use QLoRA (4-bit quantized base + LoRA adapters), the same 91K Pluribus decision dataset, assistant_only_loss=True, and the same 7 target module types (all attention + MLP projections).
+
+  ---
+  The key differences
+
+  ┌─────────────────┬───────────────────────────────────────┬──────────────────────────────────────┐
+  │                 │        Stage 1 SFT (01_sft.py)        │ Stage 2 LoRA (02_lora_per_player.py) │
+  ├─────────────────┼───────────────────────────────────────┼──────────────────────────────────────┤
+  │ Starting model  │ Original Qwen2.5-1.5B-Instruct        │ Stage 1 merged model                 │
+  ├─────────────────┼───────────────────────────────────────┼──────────────────────────────────────┤
+  │ Training data   │ All 91K decisions, all 14 players     │ One player's slice only              │
+  ├─────────────────┼───────────────────────────────────────┼──────────────────────────────────────┤
+  │ Goal            │ Teach poker + rough style differences │ Amplify one specific player's style  │
+  ├─────────────────┼───────────────────────────────────────┼──────────────────────────────────────┤
+  │ LoRA rank       │ r=32                                  │ r=16                                 │
+  ├─────────────────┼───────────────────────────────────────┼──────────────────────────────────────┤
+  │ Learning rate   │ 2e-4                                  │ 1e-4                                 │
+  ├─────────────────┼───────────────────────────────────────┼──────────────────────────────────────┤
+  │ Warmup          │ 3% of steps                           │ 5% of steps                          │
+  ├─────────────────┼───────────────────────────────────────┼──────────────────────────────────────┤
+  │ Output          │ Merged bf16 model (1.14 GB)           │ Adapter weights only (~30 MB)        │
+  ├─────────────────┼───────────────────────────────────────┼──────────────────────────────────────┤
+  │ Effective batch │ 64 examples/step                      │ 32 examples/step                     │
+  └─────────────────┴───────────────────────────────────────┴──────────────────────────────────────┘
+
+  ---
+  Why the differences exist
+
+  LoRA rank r=32 → r=16: Stage 1 is learning two things simultaneously — poker fundamentals and 14 different player styles. That needs more representational capacity. Stage 2 starts from a model that already plays poker; it only needs to shift the probability distribution toward
+  one player's tendencies. A smaller adapter is enough and is less likely to overfit on the smaller per-player slices.
+
+  LR 2e-4 → 1e-4: Stage 1 starts from a general-purpose LLM that knows almost nothing about poker decisions. Large updates are appropriate. Stage 2 starts from a model already near a good solution — smaller steps prevent overshooting and erasing what Stage 1 learned.
+
+  Warmup 3% → 5%: Per-player datasets are smaller (6–15K vs 91K), so early training noise is proportionally larger. A longer warmup ramps the LR more gently at the start when the gradient estimates are most volatile.
+
+  Adapter-only output: Stage 2 produces ~30 MB adapter files rather than a full 1.14 GB merged model per player. At inference you load the Stage 1 merged model once, then swap adapters in memory to switch between player styles. This is the practical payoff of the two-stage design.
+
+  Why train on top of Stage 1 at all, rather than the base model? If Stage 2 started from the raw base model with only MrWhite's 6,799 examples, the model would spend most of its capacity re-learning poker basics rather than MrWhite's style. Starting from Stage 1 means every
+  training example in Stage 2 is fully dedicated to style.

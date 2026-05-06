@@ -1,0 +1,123 @@
+● Three directories were created:
+
+  ---
+  adapter/ — 152 MB
+
+  The LoRA adapter weights saved at the end of training (step 3855, final epoch).
+
+  ┌────────────────────────────────────────┬─────────────────────────────────────────────────────────────────────────────────────────────────┐
+  │                  File                  │                                             Purpose                                             │
+  ├────────────────────────────────────────┼─────────────────────────────────────────────────────────────────────────────────────────────────┤
+  │ adapter_model.safetensors              │ The actual LoRA weight matrices — 36.9M parameters (r=32 across all 7 module types × 28 layers) │
+  ├────────────────────────────────────────┼─────────────────────────────────────────────────────────────────────────────────────────────────┤
+  │ adapter_config.json                    │ Records the LoRA config: r=32, alpha=64, target modules, base model path                        │
+  ├────────────────────────────────────────┼─────────────────────────────────────────────────────────────────────────────────────────────────┤
+  │ tokenizer.json / tokenizer_config.json │ Tokenizer files so the adapter is self-contained                                                │
+  ├────────────────────────────────────────┼─────────────────────────────────────────────────────────────────────────────────────────────────┤
+  │ chat_template.jinja                    │ The ChatML prompt template                                                                      │
+  └────────────────────────────────────────┴─────────────────────────────────────────────────────────────────────────────────────────────────┘
+
+  ---
+  merged/ — 1.1 GB
+
+  The adapter weights baked into the base model as a single loadable model. This is what Stage 2 uses as its starting point. It loads like any normal HuggingFace model — no PEFT library needed.
+
+  ┌───────────────────────────────────┬─────────────────────────────────────────────────────────────┐
+  │               File                │                           Purpose                           │
+  ├───────────────────────────────────┼─────────────────────────────────────────────────────────────┤
+  │ model.safetensors                 │ Full 1.5B model weights in bf16 with LoRA already merged in │
+  ├───────────────────────────────────┼─────────────────────────────────────────────────────────────┤
+  │ config.json                       │ Model architecture config                                   │
+  ├───────────────────────────────────┼─────────────────────────────────────────────────────────────┤
+  │ generation_config.json            │ Default generation settings                                 │
+  ├───────────────────────────────────┼─────────────────────────────────────────────────────────────┤
+  │ tokenizer.* / chat_template.jinja │ Same tokenizer, copied alongside                            │
+  └───────────────────────────────────┴─────────────────────────────────────────────────────────────┘
+
+  ---
+checkpoints/ — 308 MB (2 checkpoints × 154 MB each)
+
+  Mid-training snapshots saved automatically during training. With save_total_limit=2, only the two most recent are kept.
+
+  ┌─────────────────┬───────────┬────────────────────────────────────────────────┐
+  │   Checkpoint    │   Step    │                     Notes                      │
+  ├─────────────────┼───────────┼────────────────────────────────────────────────┤
+  │ checkpoint-3531 │ Step 3531 │ Best checkpoint — lowest eval loss (0.12173)   │
+  ├─────────────────┼───────────┼────────────────────────────────────────────────┤
+  │ checkpoint-3855 │ Step 3855 │ Final step — eval loss 0.12183, slightly worse │
+  └─────────────────┴───────────┴────────────────────────────────────────────────┘
+
+  Each checkpoint contains the adapter weights plus optimizer.pt, scheduler.pt, and rng_state.pth so training can be resumed exactly. Because load_best_model_at_end=True, the adapter/ directory was saved from checkpoint-3531, not 3855 — the best validation checkpoint, not the last
+  one.
+
+  ---
+  Training outcome
+
+  The model converged well:
+  - Final train loss: 0.097 — very low cross-entropy on the assistant tokens
+  - Best eval loss: 0.122 — small gap between train/eval, no significant overfitting
+  - Eval token accuracy: 95% — the model predicts the correct action token 95% of the time on held-out decisions
+
+
+
+❯ How come the sft/merge/model.safetensors is much smaller than base/model.safetensors?
+
+● Good question — let me check what's actually in both files before explaining.
+
+● Bash(cd ~/dev/poker && source .venv/bin/activate && python3 -c "
+      from safetensors import safe_open…)
+  ⎿  base: 3.09 GB  |  338 tensors  |  1.544B params  |  dtypes={'torch.bfloat16'}
+     merged: 1.14 GB  |  1318 tensors  |  0.909B params  |  dtypes={'torch.bfloat16', 'torch.float32', 'torch.uint8'}
+  ⎿  Shell cwd was reset to /data/poker
+
+● Bash(cd ~/dev/poker && source .venv/bin/activate && python3 -c "
+      from safetensors import safe_open…)
+  ⎿  Dtype breakdown:
+       torch.bfloat16      :  142 tensors     233.5M params  e.g. ['model.embed_tokens.weight', 'model.layers.0.input_layernorm.weight', 'model.layers.0.post_attention_layernorm.weight']
+       torch.uint8         :  588 tensors     675.6M params  e.g. ['model.layers.0.mlp.down_proj.weight', 'model.layers.0.mlp.down_proj.weight.absmax', 'model.layers.0.mlp.down_proj.weight.quant_state.bitsandbytes__nf4']
+       torch.float32       :  588 tensors       0.1M params  e.g. ['model.layers.0.mlp.down_proj.weight.nested_absmax', 'model.layers.0.mlp.down_proj.weight.nested_quant_map', 'model.layers.0.mlp.down_proj.weight.quant_map']
+  ⎿  Shell cwd was reset to /data/poker
+
+● The merged model is still partially quantized — merge_and_unload() didn't dequantize back to full precision. Here's what actually happened:
+
+  base:   338 tensors  |  1.544B params  |  all bfloat16       → 3.09 GB
+  merged: 1318 tensors |  0.909B params  |  mixed dtypes        → 1.14 GB
+
+  The merged file has three kinds of tensors:
+
+  ┌──────────┬───────┬────────┬──────────────────────────────────────────────────────┐
+  │  Dtype   │ Count │ Params │                         What                         │
+  ├──────────┼───────┼────────┼──────────────────────────────────────────────────────┤
+  │ bfloat16 │ 142   │ 233M   │ Embeddings, layer norms, biases — never quantized    │
+  ├──────────┼───────┼────────┼──────────────────────────────────────────────────────┤
+  │ uint8    │ 588   │ 676M   │ All 196 weight matrices still in 4-bit NF4           │
+  ├──────────┼───────┼────────┼──────────────────────────────────────────────────────┤
+  │ float32  │ 588   │ 0.1M   │ Per-layer quantization metadata (absmax, quant maps) │
+  └──────────┴───────┴────────┴──────────────────────────────────────────────────────┘
+
+  The 676M weight values stored in uint8 use 2 NF4 values packed per byte — that's why they're ~4× smaller than they'd be in bf16. merge_and_unload() merged the LoRA deltas into the quantized base weights but left them in 4-bit format. The rounding error warning at merge time was
+  the hint.
+
+  Does this matter? For Stage 2 training it's fine — Stage 2 re-quantizes the model anyway when loading with BitsAndBytesConfig. For inference it's also fine — bitsandbytes loads it transparently. The only thing you can't do is load it as a plain HuggingFace model without
+  bitsandbytes.
+
+  If you want a true full-precision merged model the fix is to load the base in fp16 before merging:
+
+  # Load base in fp16 (no BitsAndBytesConfig), apply adapter, merge
+  model = AutoModelForCausalLM.from_pretrained(str(base), dtype=torch.float16)
+  model = PeftModel.from_pretrained(model, str(adapter))
+  merged = model.merge_and_unload()   # now truly fp16, ~3 GB
+
+  That would produce a ~3 GB fp16 file with no bitsandbytes dependency. Worth doing if you plan to use the merged model for anything outside this pipeline (e.g. exporting to GGUF for llama.cpp).
+
+
+❯ Why are the number of tensors and params different between base and merged?
+  Create a script that can re-run the merge with the base loaded in fp16 and save it.
+
+● Tensor count (338 → 1318): In the base file, each weight matrix is one bf16 tensor. When bitsandbytes quantizes a weight it splits it into 6 tensors: the packed uint8 values plus 5 quantization state tensors (absmax, nested_absmax, nested_quant_map, quant_map, quant_state). So
+  196 weights × 6 = 1,176 quantization tensors + 142 unquantized (embeddings, norms, biases) = 1,318.
+
+  Param count (1.544B → 0.909B): NF4 packs 2 values per byte, so numel() on a uint8 tensor reports half the actual parameter count. The 676M uint8 elements actually represent ~1.35B weight values. Add the 233M bf16 params and you recover roughly the expected 1.58B — close to the
+  base's 1.544B (small discrepancy from quantization block-size padding).
+
+
