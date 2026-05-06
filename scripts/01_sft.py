@@ -340,9 +340,10 @@ def save(args, trainer, tokenizer) -> None:
             print("Skipping merge (--no-merge).  Load with base + adapter.")
         return
 
-    print("Merging LoRA into base weights (fp16) ...")
+    print("Merging LoRA into base weights (bf16) ...")
     merged = trainer.model.merge_and_unload()
-    merged = merged.to(torch.float16)
+    # merge_and_unload() dequantizes to the compute dtype (bf16).
+    # Do not call .to() — bitsandbytes models cannot be recast that way.
 
     merged_dir = args.output / "merged"
     merged_dir.mkdir(parents=True, exist_ok=True)
@@ -350,7 +351,7 @@ def save(args, trainer, tokenizer) -> None:
     tokenizer.save_pretrained(str(merged_dir))
 
     size_gb = sum(f.stat().st_size for f in merged_dir.glob("*.safetensors")) / 1e9
-    print(f"Merged  → {merged_dir}  ({size_gb:.2f} GB)")
+    print(f"Merged  → {merged_dir}  ({size_gb:.2f} GB, bf16)")
     print(f"\nStage 1 complete.")
     print(f"  Adapter : {adapter_dir}")
     print(f"  Merged  : {merged_dir}  ← use as --base-model for 02_lora_per_player.py")

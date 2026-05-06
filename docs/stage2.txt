@@ -1,0 +1,41 @@
+● Script is ready. Key design decisions:
+
+  vs Stage 1:
+
+  ┌────────────────┬───────────────────┬───────────────────────────────────┐
+  │                │    Stage 1 SFT    │           Stage 2 LoRA            │
+  ├────────────────┼───────────────────┼───────────────────────────────────┤
+  │ Starting point │ Base Qwen model   │ Stage 1 merged model              │
+  ├────────────────┼───────────────────┼───────────────────────────────────┤
+  │ Data           │ All 91K examples  │ One player's slice only           │
+  ├────────────────┼───────────────────┼───────────────────────────────────┤
+  │ LoRA rank      │ r=32              │ r=16 (style needs less capacity)  │
+  ├────────────────┼───────────────────┼───────────────────────────────────┤
+  │ Learning rate  │ 2e-4              │ 1e-4 (already near optimum)       │
+  ├────────────────┼───────────────────┼───────────────────────────────────┤
+  │ Warmup         │ 3%                │ 5% (smaller datasets are noisier) │
+  ├────────────────┼───────────────────┼───────────────────────────────────┤
+  │ Output         │ Merged fp16 model │ Adapter weights only (~30 MB)     │
+  ├────────────────┼───────────────────┼───────────────────────────────────┤
+  │ Packing        │ Disabled (same)   │ Disabled (same)                   │
+  └────────────────┴───────────────────┴───────────────────────────────────┘
+
+  Runtime estimate after Stage 1 completes — training all 7 default players sequentially:
+
+  ┌──────────────────────────┬──────────────┬──────────────┐
+  │          Player          │   Examples   │  Est. time   │
+  ├──────────────────────────┼──────────────┼──────────────┤
+  │ Pluribus + MrBlue        │ ~13-14K each │ ~15 min each │
+  ├──────────────────────────┼──────────────┼──────────────┤
+  │ Bill + MrOrange          │ ~9-11K       │ ~10 min each │
+  ├──────────────────────────┼──────────────┼──────────────┤
+  │ MrPink + Eddie + MrWhite │ ~6-9K        │ ~8 min each  │
+  ├──────────────────────────┼──────────────┼──────────────┤
+  │ Total                    │              │ ~1.5 hrs     │
+  └──────────────────────────┴──────────────┴──────────────┘
+
+  Run it after Stage 1 finishes:
+  python player-llm/scripts/02_lora_per_player.py
+
+  Or dry-run now (uses base model as fallback since Stage 1 isn't done):
+  python player-llm/scripts/02_lora_per_player.py --dry-run --players Pluribus

@@ -1,0 +1,31 @@
+❯ What do all of these fields in the training output mean:
+  {'loss': '0.2868', 'grad_norm': '1.43', 'learning_rate': '8.448e-05', 'entropy': '0.2829', 'num_tokens': '5.427e+05', 'mean_token_accuracy': '0.8856', 'epoch': '0.03892'}
+
+● ┌─────────────────────┬──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+  │        Field        │                                                                                 Meaning                                                                                  │
+  ├─────────────────────┼──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┤
+  │ loss                │ Cross-entropy loss on the current batch, computed only on assistant tokens (because assistant_only_loss=True). Lower = better.                                           │
+  ├─────────────────────┼──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┤
+  │ grad_norm           │ L2 norm of all gradients before the optimizer step. Spikes here indicate unstable training; values around 1–3 are healthy.                                               │
+  ├─────────────────────┼──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┤
+  │ learning_rate       │ Current LR from the cosine scheduler. It peaks at 2e-4 after warmup and decays toward zero by the end of epoch 3.                                                        │
+  ├─────────────────────┼──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┤
+  │ entropy             │ Entropy of the model's output probability distribution. Lower = model is more confident. 0.28 is very low, meaning it's already committing strongly to specific actions. │
+  ├─────────────────────┼──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┤
+  │ num_tokens          │ Cumulative assistant tokens seen in training so far (the denominator for loss and accuracy).                                                                             │
+  ├─────────────────────┼──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┤
+  │ mean_token_accuracy │ Fraction of assistant tokens where the model's argmax prediction matches the label. 0.886 = 88.6% correct.                                                               │
+  ├─────────────────────┼──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┤
+  │ epoch               │ Progress through training. 0.039 = 3.9% through epoch 1 of 3.                                                                                                            │
+  └─────────────────────┴──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+
+  ---
+  Assistant tokens are the predictions. e.g. check, call, fold, raise <n>
+
+  What these numbers are telling you:
+
+  Loss of 0.287 and accuracy of 88.6% after only 4% of epoch 1 is extremely fast convergence. This makes sense for the task — with assistant_only_loss=True, the model only predicts your 1–3 token responses like fold, check, call, raise 210. It's not doing general language modeling;
+   it's essentially learning a 4-class classifier (fold/check/call/raise) plus a bet size. The base model already has enough poker vocabulary that it picks up the pattern very quickly.
+
+  The more interesting question will be whether it's learning whose style to imitate, not just what to do. That requires looking at per-player accuracy breakdowns, which we can add to the eval script later. The loss curve alone won't tell you if MrBlue's 3-bet range looks different
+   from Pluribus's.
