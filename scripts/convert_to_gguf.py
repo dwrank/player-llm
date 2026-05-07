@@ -40,7 +40,7 @@ from pathlib import Path
 
 SFT_MERGED   = Path("/data/models/qwen2.5-1.5b-instruct/sft/merged")
 ADAPTER_ROOT = Path("/data/models/qwen2.5-1.5b-instruct/adapters")
-GGUF_OUT     = Path("/data/models/gguf")
+GGUF_OUT     = Path("/data/models/qwen2.5-1.5b-instruct/gguf")
 
 DEFAULT_PLAYERS = [
     "Pluribus", "MrBlue", "MrOrange", "Bill", "MrPink", "Eddie", "MrWhite",
@@ -86,12 +86,16 @@ def find_tools(llama_cpp: Path) -> tuple[Path, Path | None]:
         print(f"  Expected convert_hf_to_gguf.py or convert.py", file=sys.stderr)
         sys.exit(1)
 
-    # Quantizer binary
+    # Quantizer: check relative paths first, then PATH
     for name in ["llama-quantize", "build/bin/llama-quantize",
                  "build/bin/quantize", "quantize"]:
         candidate = llama_cpp / name
         if candidate.exists():
             return converter, candidate
+
+    in_path = shutil.which("llama-quantize")
+    if in_path:
+        return converter, Path(in_path)
 
     return converter, None
 
