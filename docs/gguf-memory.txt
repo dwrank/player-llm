@@ -1,0 +1,34 @@
+● Size savings (Qwen2.5-1.5B)
+
+  ┌────────────────┬───────────┬────────────────────────┐
+  │     Format     │ Base size │         Notes          │
+  ├────────────────┼───────────┼────────────────────────┤
+  │ fp16 (current) │ 2.9 GB    │                        │
+  ├────────────────┼───────────┼────────────────────────┤
+  │ GGUF Q8_0      │ ~1.6 GB   │ Nearly lossless        │
+  ├────────────────┼───────────┼────────────────────────┤
+  │ GGUF Q6_K      │ ~1.2 GB   │ Very good              │
+  ├────────────────┼───────────┼────────────────────────┤
+  │ GGUF Q4_K_M    │ ~0.9 GB   │ Best balance           │
+  ├────────────────┼───────────┼────────────────────────┤
+  │ GGUF Q3_K_M    │ ~0.7 GB   │ Noticeable degradation │
+  └────────────────┴───────────┴────────────────────────┘
+
+llama.cpp does support GGUF LoRA adapters via --lora, but the easier path for 7 players is to merge each adapter into the base first, then convert each merged model to GGUF:
+
+  - 7 players × ~0.9 GB (Q4_K_M) = ~6.3 GB total
+
+  vs. keeping one GGUF base + 7 GGUF adapters:
+
+  - ~0.9 GB base + 7 × ~40 MB adapters = ~1.2 GB total — but adapter GGUF conversion tooling is less mature
+
+  Performance impact for poker
+
+  Quantization affects open-ended generation more than constrained classification. Your output space is small — fold/call/raise + sizing. Q4_K_M should be nearly indistinguishable in practice for discrete action prediction. Q3_K_M is where you'd
+  likely start seeing degraded reasoning on complex spots.
+
+  Recommendation
+
+  - GPU inference: stay with fp16 + HuggingFace, easiest
+  - CPU/tablet: merge each player adapter with merge_adapter.py, convert all 7 to Q4_K_M GGUF — ~6 GB for all players, usable anywhere via llama-cpp-python
+
