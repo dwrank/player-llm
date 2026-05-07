@@ -340,10 +340,10 @@ def save(args, trainer, tokenizer) -> None:
             print("Skipping merge (--no-merge).  Load with base + adapter.")
         return
 
-    print("Merging LoRA into base weights (bf16) ...")
+    # NOTE: merge_and_unload() on a 4-bit base keeps weights in NF4 uint8
+    # (~1.1 GB). For a clean fp16/bf16 merge, run merge_adapter.py separately.
+    print("Merging LoRA into base weights ...")
     merged = trainer.model.merge_and_unload()
-    # merge_and_unload() dequantizes to the compute dtype (bf16).
-    # Do not call .to() — bitsandbytes models cannot be recast that way.
 
     merged_dir = args.output / "merged"
     merged_dir.mkdir(parents=True, exist_ok=True)
