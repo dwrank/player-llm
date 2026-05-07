@@ -1,0 +1,13 @@
+# Convert fp16 safetensors directly to Q4_K_M in one pass
+  python convert_hf_to_gguf.py /path/to/fp16/model \
+      --outtype q4_k_m \
+      --outfile qwen2.5-1.5b-q4km.gguf
+
+  LoRA conversion is unchanged:
+
+  python convert_lora_to_gguf.py /path/to/lora/bot1 \
+      --base /path/to/fp16/model \
+      --outfile bot1-f16.gguf
+
+  Single quantization step from fp16 → Q4_K_M gives you the best possible
+quality at that bit depth.

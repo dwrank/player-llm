@@ -29,3 +29,93 @@
 
   The more interesting question will be whether it's learning whose style to imitate, not just what to do. That requires looking at per-player accuracy breakdowns, which we can add to the eval script later. The loss curve alone won't tell you if MrBlue's 3-bet range looks different
    from Pluribus's.
+
+
+--- stage 1 ---
+{'train_runtime': '2.754e+04', 'train_samples_per_second': '8.956',
+'train_steps_per_second': '0.14', 'train_loss': '0.1515', 'entropy':
+'0.09398', 'num_tokens': '4.178e+07', 'mean_token_accuracy': '0.9632',
+'epoch': '3'}
+
+{'eval_loss': '0.1218', 'eval_runtime': '313.2', 'eval_samples_per_second':
+'29.17', 'eval_steps_per_second': '1.823', 'eval_entropy': '0.1096',
+'eval_num_tokens': '4.178e+07', 'eval_mean_token_accuracy': '0.9504', 'epoch':
+'3'}
+
+--- stage 2 ---
+1. Pluribus:
+{'loss': '0.1031', 'grad_norm': '0.4766', 'learning_rate': '8.074e-08',
+'entropy': '0.1036', 'num_tokens': '6.913e+06', 'mean_token_accuracy':
+'0.9544', 'epoch': '2.951'}
+{'eval_loss': '0.13', 'eval_runtime': '55.91', 'eval_samples_per_second':
+'27.12', 'eval_steps_per_second': '1.699', 'eval_entropy': '0.1107',
+'eval_num_tokens': '7.027e+06', 'eval_mean_token_accuracy': '0.9446', 'epoch':
+'3'}
+{'train_runtime': '4792', 'train_samples_per_second': '8.547',
+'train_steps_per_second': '0.267', 'train_loss': '0.1273', 'epoch': '3'}
+
+2. MrBlue:
+{'loss': '0.0625', 'grad_norm': '0.4668', 'learning_rate': '1.699e-08',
+'entropy': '0.06566', 'num_tokens': '6.795e+06', 'mean_token_accuracy':
+'0.9741', 'epoch': '2.98'}
+{'eval_loss': '0.1057', 'eval_runtime': '51.43', 'eval_samples_per_second':
+'29.19', 'eval_steps_per_second': '1.828', 'eval_entropy': '0.07091',
+'eval_num_tokens': '6.84e+06', 'eval_mean_token_accuracy': '0.9613', 'epoch':
+'3'}                    
+{'train_runtime': '4373', 'train_samples_per_second': '9.27',
+'train_steps_per_second': '0.29', 'train_loss': '0.08359', 'epoch': '3'}
+
+3. MrOrange:
+{'loss': '0.0912', 'grad_norm': '0.3242', 'learning_rate': '3.313e-08',
+'entropy': '0.09168', 'num_tokens': '4.893e+06', 'mean_token_accuracy':
+'0.9671', 'epoch': '2.97'}
+{'eval_loss': '0.1324', 'eval_runtime': '36.87', 'eval_samples_per_second':
+'29.19', 'eval_steps_per_second': '1.844', 'eval_entropy': '0.1048',
+'eval_num_tokens': '4.94e+06', 'eval_mean_token_accuracy': '0.9493', 'epoch':
+'3'}                     
+{'train_runtime': '3142', 'train_samples_per_second': '9.251',
+'train_steps_per_second': '0.289', 'train_loss': '0.1156', 'epoch': '3'}
+
+4. Bill:
+{'loss': '0.06631', 'grad_norm': '0.1602', 'learning_rate': '1.746e-08',
+'entropy': '0.0642', 'num_tokens': '4.65e+06', 'mean_token_accuracy':
+'0.9704', 'epoch': '2.981'}                                                                              
+{'eval_loss': '0.09554', 'eval_runtime': '35.05', 'eval_samples_per_second':
+'29.5', 'eval_steps_per_second': '1.854', 'eval_entropy': '0.06575',
+'eval_num_tokens': '4.677e+06', 'eval_mean_token_accuracy': '0.96', 'epoch':
+'3'}                     
+{'train_runtime': '2983', 'train_samples_per_second': '9.367',
+'train_steps_per_second': '0.294', 'train_loss': '0.08062', 'epoch': '3'}
+
+5. MrPink:
+{'loss': '0.05055', 'grad_norm': '0.2334', 'learning_rate': '2.227e-07',
+'entropy': '0.06242', 'num_tokens': '4.065e+06', 'mean_token_accuracy':
+'0.9824', 'epoch': '2.918'}                                                                            
+{'eval_loss': '0.1044', 'eval_runtime': '31.3', 'eval_samples_per_second':
+'29.17', 'eval_steps_per_second': '1.853', 'eval_entropy': '0.06624',
+'eval_num_tokens': '4.178e+06', 'eval_mean_token_accuracy': '0.963', 'epoch':
+'3'}                     
+{'train_runtime': '2664', 'train_samples_per_second': '9.258',
+'train_steps_per_second': '0.289', 'train_loss': '0.07413', 'epoch': '3'}
+
+6. Eddie:
+{'loss': '0.05876', 'grad_norm': '0.5859', 'learning_rate': '2.547e-08',
+'entropy': '0.07147', 'num_tokens': '3.847e+06', 'mean_token_accuracy':
+'0.9771', 'epoch': '2.977'}                                                                            
+{'eval_loss': '0.1054', 'eval_runtime': '29.09', 'eval_samples_per_second':
+'29.5', 'eval_steps_per_second': '1.856', 'eval_entropy': '0.07138',
+'eval_num_tokens': '3.875e+06', 'eval_mean_token_accuracy': '0.9614', 'epoch':
+'3'}                    
+{'train_runtime': '2471', 'train_samples_per_second': '9.379',
+'train_steps_per_second': '0.294', 'train_loss': '0.08591', 'epoch': '3'}
+
+7. MrWhite:
+{'loss': '0.0619', 'grad_norm': '0.2559', 'learning_rate': '4.04e-08',
+'entropy': '0.06831', 'num_tokens': '3.082e+06', 'mean_token_accuracy':
+'0.9787', 'epoch': '2.971'}                                                                              
+{'eval_loss': '0.09106', 'eval_runtime': '23.3', 'eval_samples_per_second':
+'29.14', 'eval_steps_per_second': '1.845', 'eval_entropy': '0.06443',
+'eval_num_tokens': '3.11e+06', 'eval_mean_token_accuracy': '0.9697', 'epoch':
+'3'}                    
+{'train_runtime': '1985', 'train_samples_per_second': '9.25',
+'train_steps_per_second': '0.29', 'train_loss': '0.08035', 'epoch': '3'}
