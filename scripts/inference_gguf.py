@@ -101,8 +101,8 @@ def parse_args() -> argparse.Namespace:
     g.add_argument("--top-p",       type=float, default=1.0)
 
     g = p.add_argument_group("runtime")
-    g.add_argument("--gpu-layers", type=int, default=0,
-                   help="Layers to offload to GPU. 0=CPU only, -1=all layers")
+    g.add_argument("--gpu-layers", type=int, default=-1,
+                   help="Layers to offload to GPU. -1=all layers (default), 0=CPU only")
     g.add_argument("--threads",    type=int, default=None,
                    help="CPU threads (default: llama.cpp auto-detect)")
     g.add_argument("--ctx",        type=int, default=512,
