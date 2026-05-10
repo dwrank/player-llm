@@ -1,0 +1,28 @@
+❯ Is the prediction of the model deterministic, such that given the exact same input, it will always produce the same output?                                                                                                                           
+
+● With temperature=0.0 (greedy decoding), the intent is deterministic — the model always picks the argmax token. But as we already observed with MrWhite's Q4_K_M cross-quant results earlier in this session, it's not guaranteed in practice.
+
+  The source of non-determinism is CUDA. cuBLAS matrix multiplications use atomic reductions by default — threads race to accumulate partial sums, and the order they complete varies with GPU scheduling state. This produces tiny floating-point
+  differences across runs. For most decisions, the winning logit has a large enough margin that this doesn't matter. For marginal decisions (a close check vs raise, borderline fold vs call), the accumulated rounding across 28 layers can flip the
+  argmax.
+
+  When it will be consistent:
+  - Clear decisions — fold a garbage hand preflop, call with pot odds locked in. Logit margin is large, numerical noise can't reach it.
+
+  When it may vary:
+  - Borderline decisions. If the model is 51/49 on raise vs check, CUDA rounding can flip it between runs.
+
+  To force true determinism:
+
+  For HuggingFace:
+  import torch
+  torch.use_deterministic_algorithms(True)
+  torch.backends.cudnn.deterministic = True
+  # Also set CUBLAS_WORKSPACE_CONFIG=:4096:8 in environment
+
+  For llama-cpp-python there's no equivalent setting exposed — you'd need to set the environment variable before the process starts:
+  CUBLAS_WORKSPACE_CONFIG=:4096:8 python your_script.py
+
+  CPU inference is truly deterministic — no CUDA scheduling variance. If reproducibility matters more than speed, running on CPU eliminates the issue entirely (at significant latency cost for a 1.5B model).
+
+  For a simulation, the practical implication is that a given game state won't always produce the exact same action across separate runs, but it will be stable within a single process unless GPU state changes significantly between decisions.

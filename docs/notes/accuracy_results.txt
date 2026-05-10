@@ -55,3 +55,51 @@ though it raises less often (73.1% type accuracy vs 80%)
     86.8%, so Q8 is the sweet spot for storage vs accuracy
   - HF trails all GGUF variants primarily due to the check problem (23.6% vs
     76–86%)
+
+
+Updated after re-running stage 2 adapters on non-quantized base:
+================================================================================================
+Accuracy vs ground truth
+  exact    = exact string match
+  weighted = exact for fold/check/call; raise scored by 1-|pred-truth|/truth
+================================================================================================
+Player              HF fp16           GGUF f16+lora        GGUF Q8+lora         GGUF Q4+lora
+                 exact  weighted     exact  weighted     exact  weighted     exact  weighted
+────────────────────────────────────────────────────────────────────────────────────────────────
+MrWhite         79.0%    84.1%    87.0%    90.4%    86.0%    89.4%    87.0%    90.4%
+MrPink          77.0%    82.0%    82.0%    87.3%    83.0%    88.3%    83.0%    86.3%
+Pluribus        73.0%    77.5%    79.0%    83.2%    80.0%    84.2%    82.0%    83.8%
+MrBlue          80.0%    84.3%    87.0%    90.7%    87.0%    90.7%    87.0%    88.9%
+MrOrange        64.0%    74.2%    78.0%    84.7%    78.0%    84.7%    82.0%    88.9%
+Eddie           72.0%    75.6%    79.0%    81.0%    80.0%    82.0%    82.0%    84.0%
+Bill            79.0%    80.8%    89.0%    90.2%    89.0%    90.2%    90.0%    91.2%
+────────────────────────────────────────────────────────────────────────────────────────────────
+TOTAL           74.9%    79.8%    83.0%    86.8%    83.3%    87.1%    84.7%    87.6%
+
+Exact match by action type
+────────────────────────────────────────────────────────────────────────────────────────────────
+  action        HF fp16        GGUF f16+lora      GGUF Q8+lora      GGUF Q4+lora
+  fold      358/368 ( 97.3%)  358/368 ( 97.3%)  358/368 ( 97.3%)  358/368 ( 97.3%)
+  call       62/77 ( 80.5%)   62/77 ( 80.5%)   63/77 ( 81.8%)   67/77 ( 87.0%)
+  check      26/110 ( 23.6%)   84/110 ( 76.4%)   84/110 ( 76.4%)   95/110 ( 86.4%)
+  raise      78/145 ( 53.8%)   77/145 ( 53.1%)   78/145 ( 53.8%)   73/145 ( 50.3%)
+
+Raise sizing  (ground truth = raise)
+────────────────────────────────────────────────────────────────────────────────────────────────
+  HF fp16  n=145  predicted raise: 134/145 (92.4%)
+        when both raise  n=134  mean rel err: 20.3%  mean abs: $172  median abs: $0
+        ±5%: 85/134 (63%)  ±10%: 93/134 (69%)  ±25%: 106/134 (79%)
+
+  GGUF f16+lora  n=145  predicted raise: 116/145 (80.0%)
+        when both raise  n=116  mean rel err: 12.1%  mean abs: $70  median abs: $0
+        ±5%: 86/116 (74%)  ±10%: 90/116 (78%)  ±25%: 99/116 (85%)
+
+  GGUF Q8+lora  n=145  predicted raise: 118/145 (81.4%)
+        when both raise  n=118  mean rel err: 13.6%  mean abs: $76  median abs: $0
+        ±5%: 87/118 (74%)  ±10%: 91/118 (77%)  ±25%: 100/118 (85%)
+
+  GGUF Q4+lora  n=145  predicted raise: 105/145 (72.4%)
+        when both raise  n=105  mean rel err: 15.0%  mean abs: $121  median abs: $0
+        ±5%: 80/105 (76%)  ±10%: 84/105 (80%)  ±25%: 89/105 (85%)
+
+================================================================================================
