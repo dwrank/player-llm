@@ -1,0 +1,77 @@
+Variants : gguf-q8
+Loading eval split (seed=42, split=0.1) ...
+llama_context: n_ctx_seq (512) < n_ctx_train (32768) -- the full capacity of the model will not be utilized
+Sampled 6450 examples across 7 players (1000 per player max)
+
+── GGUF Q8+lora ────────────────────────────────────────────────
+  GGUF Q8+lora   MrWhite      exact 594/679 (87.5%)  weighted 608.0/679 (89.5%)
+llama_context: n_ctx_seq (512) < n_ctx_train (32768) -- the full capacity of the model will not be utilized
+  GGUF Q8+lora   MrPink       exact 789/913 (86.4%)  weighted 818.6/913 (89.7%)
+llama_context: n_ctx_seq (512) < n_ctx_train (32768) -- the full capacity of the model will not be utilized
+  GGUF Q8+lora   Pluribus     exact 787/1000 (78.7%)  weighted 857.5/1000 (85.7%)
+llama_context: n_ctx_seq (512) < n_ctx_train (32768) -- the full capacity of the model will not be utilized
+  GGUF Q8+lora   MrBlue       exact 848/1000 (84.8%)  weighted 875.8/1000 (87.6%)
+llama_context: n_ctx_seq (512) < n_ctx_train (32768) -- the full capacity of the model will not be utilized
+  GGUF Q8+lora   MrOrange     exact 829/1000 (82.9%)  weighted 879.4/1000 (87.9%)
+llama_context: n_ctx_seq (512) < n_ctx_train (32768) -- the full capacity of the model will not be utilized
+  GGUF Q8+lora   Eddie        exact 715/858 (83.3%)  weighted 740.9/858 (86.3%)
+llama_context: n_ctx_seq (512) < n_ctx_train (32768) -- the full capacity of the model will not be utilized
+  GGUF Q8+lora   Bill         exact 849/1000 (84.9%)  weighted 875.4/1000 (87.5%)
+
+
+=================================
+Accuracy vs ground truth
+  exact    = exact string match
+  weighted = exact for fold/check/call; raise scored by 1-|pred-truth|/truth
+=================================
+Player           GGUF Q8+lora    
+                 exact  weighted
+─────────────────────────────────
+MrWhite         87.5%    89.5%
+MrPink          86.4%    89.7%
+Pluribus        78.7%    85.7%
+MrBlue          84.8%    87.6%
+MrOrange        82.9%    87.9%
+Eddie           83.3%    86.3%
+Bill            84.9%    87.5%
+─────────────────────────────────
+TOTAL           83.9%    87.7%
+
+Exact match by action type
+─────────────────────────────────
+  action      GGUF Q8+lora  
+  fold      3315/3393 ( 97.7%)
+  call      555/690 ( 80.4%)
+  check     863/1066 ( 81.0%)
+  raise     678/1301 ( 52.1%)
+
+Raise sizing  (ground truth = raise)
+─────────────────────────────────
+  GGUF Q8+lora  n=1301  predicted raise: 1030/1301 (79.2%)
+        when both raise  n=1030  mean rel err: 11.6%  mean abs: $98  median abs: $0
+        ±5%: 730/1030 (71%)  ±10%: 759/1030 (74%)  ±25%: 879/1030 (85%)
+
+
+Accuracy by street
+─────────────────────────────────
+  street         GGUF Q8+lora    
+                 exact  weighted
+─────────────────────────────────
+  Preflop       91.2%    94.6%
+  Flop          70.1%    74.9%
+  Turn          70.1%    74.7%
+  River         61.5%    66.3%
+
+Accuracy by board texture  (flop / turn / river)
+─────────────────────────────────
+  texture              GGUF Q8+lora    
+                       exact  weighted
+─────────────────────────────────
+  unpaired            68.0%    73.1%
+  paired              69.1%    72.7%
+  rainbow             67.9%    73.0%
+  two-tone            70.1%    74.2%
+  flush possible      61.9%    68.2%
+  unconnected         72.6%    76.8%
+  connected           67.8%    72.5%
+=================================

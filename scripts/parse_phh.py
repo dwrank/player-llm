@@ -31,6 +31,7 @@ import re
 import json
 import argparse
 import sys
+from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Iterator, Optional
@@ -344,6 +345,187 @@ _SYSTEM = (
 )
 
 
+# ── Hand features ─────────────────────────────────────────────────────────────
+
+_POKER_EVAL_DIR = (
+    Path(__file__).resolve().parents[3] / "poker-eval" / "poker-eval-cpp" / "python"
+)
+
+def _load_evaluate_hand():
+    try:
+        if str(_POKER_EVAL_DIR) not in sys.path:
+            sys.path.insert(0, str(_POKER_EVAL_DIR))
+        from poker_eval import evaluate_hand
+        return evaluate_hand
+    except (ImportError, OSError):
+        return None
+
+_evaluate_hand = _load_evaluate_hand()
+
+_RANK_ORDER = "23456789TJQKA"
+_RANK_FULL   = {
+    '2': 'two',   '3': 'three', '4': 'four',  '5': 'five',
+    '6': 'six',   '7': 'seven', '8': 'eight', '9': 'nine',
+    'T': 'ten',   'J': 'jack',  'Q': 'queen', 'K': 'king',  'A': 'ace',
+}
+_RANK_PLURAL = {
+    '2': 'twos',   '3': 'threes', '4': 'fours',  '5': 'fives',
+    '6': 'sixes',  '7': 'sevens', '8': 'eights', '9': 'nines',
+    'T': 'tens',   'J': 'jacks',  'Q': 'queens', 'K': 'kings', 'A': 'aces',
+}
+
+
+def _preflop_hand_desc(hole: list[str]) -> str:
+    r1, s1 = hole[0][:-1], hole[0][-1]
+    r2, s2 = hole[1][:-1], hole[1][-1]
+    if r1 == r2:
+        return f"Pocket {_RANK_PLURAL[r1]}"
+    if _RANK_ORDER.index(r1) < _RANK_ORDER.index(r2):
+        r1, r2 = r2, r1
+    suited = "suited" if s1 == s2 else "offsuit"
+    return f"{_RANK_FULL[r1].capitalize()}-{_RANK_FULL[r2]} {suited}"
+
+
+def _postflop_hand_desc(hole: list[str], board: list[str]) -> str | None:
+    if _evaluate_hand is None:
+        return None
+    try:
+        _, desc = _evaluate_hand(hole + board)
+        return desc
+    except Exception:
+        return None
+
+
+def _board_texture(board: list[str]) -> str:
+    ranks = [c[:-1] for c in board]
+    suits = [c[-1]  for c in board]
+    parts = []
+
+    max_rank_count = max(Counter(ranks).values())
+    if max_rank_count >= 4:
+        parts.append("Quads on board")
+    elif max_rank_count == 3:
+        parts.append("Trips on board")
+    elif max_rank_count == 2:
+        parts.append("Paired")
+    else:
+        parts.append("Unpaired")
+
+    max_suit_count = max(Counter(suits).values())
+    if max_suit_count >= 3:
+        parts.append("Flush possible")
+    elif max_suit_count == 2:
+        parts.append("Two-tone")
+    else:
+        parts.append("Rainbow")
+
+    nums = sorted(set(_RANK_ORDER.index(r) for r in ranks if r in _RANK_ORDER))
+    connected = (
+        any(nums[i + 1] - nums[i] <= 3 for i in range(len(nums) - 1))
+        if len(nums) >= 2 else False
+    )
+    parts.append("Connected" if connected else "Unconnected")
+
+    return ", ".join(parts)
+
+
+def _has_straight_potential(all_cards: list[str]) -> bool:
+    """True if hero has a made straight or any straight draw (OESD or gutshot)."""
+    present = set(_RANK_ORDER.index(c[:-1]) for c in all_cards if c[:-1] in _RANK_ORDER)
+    if 12 in present:
+        present = present | {-1}
+    for start in range(-1, 9):
+        if len(present & set(range(start, start + 5))) >= 4:
+            return True
+    return False
+
+
+def _draw_desc(hole: list[str], board: list[str]) -> str | None:
+    """Hero's flush and straight draws. None on the river (no cards to come)."""
+    if len(board) == 5:
+        return None
+
+    all_cards = hole + board
+    draws = []
+
+    # Flush draw: exactly 4 of one suit (5+ = made flush, shown in hand desc)
+    if any(v == 4 for v in Counter(c[-1] for c in all_cards).values()):
+        draws.append("Flush draw (9 outs)")
+
+    # Straight draws: scan every 5-rank window
+    present = set(_RANK_ORDER.index(c[:-1]) for c in all_cards if c[:-1] in _RANK_ORDER)
+    if 12 in present:
+        present = present | {-1}
+
+    oesd = gutshot = False
+    for start in range(-1, 9):
+        window = set(range(start, start + 5))
+        n_in   = len(present & window)
+        if n_in == 4:
+            gap = list(window - present)[0] - start   # 0..4
+            if gap in (0, 4):
+                oesd = True
+            else:
+                gutshot = True
+
+    if oesd:
+        draws.append("Open-ended straight draw (8 outs)")
+    elif gutshot:
+        draws.append("Gutshot straight draw (4 outs)")
+
+    return ", ".join(draws) if draws else None
+
+
+def _board_danger_desc(hole: list[str], board: list[str]) -> str | None:
+    """
+    Flush/straight board threats that hero is NOT holding or drawing to.
+    Only fires when the board creates a danger and the hero has no part of it.
+    """
+    all_cards = hole + board
+    dangers   = []
+
+    # Flush danger: board has 2+ suited and hero has fewer than 4 of that suit
+    board_suit_counts = Counter(c[-1] for c in board)
+    max_board_suit    = max(board_suit_counts.values())
+    if max_board_suit >= 2:
+        max_all_suit = max(Counter(c[-1] for c in all_cards).values())
+        if max_all_suit < 4:   # hero doesn't have or draw to the flush
+            label = "Flush possible" if max_board_suit >= 3 else "Flush draw possible"
+            dangers.append(f"{label} (not in your hand)")
+
+    # Straight danger: board is connected and hero has no straight or draw
+    board_nums = sorted(
+        set(_RANK_ORDER.index(c[:-1]) for c in board if c[:-1] in _RANK_ORDER)
+    )
+    board_connected = (
+        any(board_nums[i + 1] - board_nums[i] <= 3 for i in range(len(board_nums) - 1))
+        if len(board_nums) >= 2 else False
+    )
+    if board_connected and not _has_straight_potential(all_cards):
+        dangers.append("Straight draw possible (not in your hand)")
+
+    # Paired board danger: board has pair/trips and hero doesn't benefit from it
+    board_rank_counts = Counter(c[:-1] for c in board)
+    max_board_rank    = max(board_rank_counts.values())
+    if max_board_rank >= 2 and _evaluate_hand is not None and hole:
+        try:
+            hand_val, _ = _evaluate_hand(hole + board)
+            hero_cat    = (hand_val >> 24) & 0xFF
+            # hero_cat: 0=HC 1=Pair 2=TwoPair 3=Trips 4=Straight 5=Flush 6=FH 7=Quads 8=SF
+            if max_board_rank >= 3:
+                # Board has trips — dangerous unless hero has quads
+                if hero_cat < 7:
+                    dangers.append("Trips on board, quads possible (not in your hand)")
+            else:
+                # Board has a pair — dangerous unless hero has full house or better
+                if hero_cat < 6:
+                    dangers.append("Paired board, full house possible (not in your hand)")
+        except Exception:
+            pass
+
+    return ", ".join(dangers) if dangers else None
+
+
 def decision_to_sft(d: Decision) -> dict:
     s = d.state
     n = len(s.hand.players)
@@ -370,11 +552,38 @@ def decision_to_sft(d: Decision) -> dict:
 
     call_str = "free (check)" if to_call == 0 else f"${to_call:,.0f}"
 
+    # Hand features
+    hole_list = cards.split() if "?" not in cards else []
+    if hole_list:
+        if s.board:
+            hand_desc    = _postflop_hand_desc(hole_list, list(s.board))
+            texture_str  = _board_texture(list(s.board))
+            draws_str    = _draw_desc(hole_list, list(s.board))
+            danger_str   = _board_danger_desc(hole_list, list(s.board))
+        else:
+            hand_desc    = _preflop_hand_desc(hole_list)
+            texture_str  = None
+            draws_str    = None
+            danger_str   = None
+    else:
+        hand_desc = texture_str = draws_str = danger_str = None
+
+    hand_lines = ""
+    if texture_str:
+        hand_lines += f"Board texture: {texture_str}\n"
+    if hand_desc:
+        hand_lines += f"Your hand: {hand_desc}\n"
+    if draws_str:
+        hand_lines += f"Your draws: {draws_str}\n"
+    if danger_str:
+        hand_lines += f"Board danger: {danger_str}\n"
+
     user_msg = (
         f"Street: {s.street}\n"
         f"Position: {d.position}\n"
         f"Your hole cards: {cards}\n"
         f"Board: {board_str}\n"
+        f"{hand_lines}"
         f"Pot: ${s.pot:,.0f}\n"
         f"Your stack: ${s.stacks[d.player_idx]:,.0f}\n"
         f"To call: {call_str}\n"

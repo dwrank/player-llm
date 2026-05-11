@@ -1,0 +1,48 @@
+● Here are the key findings:
+
+  Overall: 83.9% exact / 87.7% weighted across 6,450 examples.
+
+  Street breakdown — clear degradation toward later streets:
+
+  ┌─────────┬───────┐
+  │ Street  │ Exact │
+  ├─────────┼───────┤
+  │ Preflop │ 91.2% │
+  ├─────────┼───────┤
+  │ Flop    │ 70.1% │
+  ├─────────┼───────┤
+  │ Turn    │ 70.1% │
+  ├─────────┼───────┤
+  │ River   │ 61.5% │
+  └─────────┴───────┘
+
+  River accuracy drops nearly 10 points vs flop/turn — river decisions require knowing when to value bet vs check, which needs accurate hand strength assessment.
+
+  Board texture — flush boards are the standout weakness:
+
+  ┌────────────────┬───────┐
+  │    Texture     │ Exact │
+  ├────────────────┼───────┤
+  │ Unconnected    │ 72.6% │
+  ├────────────────┼───────┤
+  │ Two-tone       │ 70.1% │
+  ├────────────────┼───────┤
+  │ Rainbow        │ 67.9% │
+  ├────────────────┼───────┤
+  │ Connected      │ 67.8% │
+  ├────────────────┼───────┤
+  │ Paired         │ 69.1% │
+  ├────────────────┼───────┤
+  │ Unpaired       │ 68.0% │
+  ├────────────────┼───────┤
+  │ Flush possible │ 61.9% │
+  └────────────────┴───────┘
+
+  Flush-possible boards (3+ suited cards) are nearly 11 points below unconnected boards. This is the clearest signal — the model struggles when a flush is already possible on the board. Connected vs unconnected is a smaller but real gap (~5
+  points).
+
+  Paired vs unpaired boards are essentially equal, so adding a paired-board indicator would likely not help much.
+
+  Raise accuracy: 79.2% predict the right action type; when both predict raise, median absolute error is $0 (over half are exact matches), and 71% are within ±5%.
+
+  The flush-possible result directly supports adding flush texture features to the training data — that's where the accuracy gap is large enough to justify a retrain.

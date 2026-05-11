@@ -1,0 +1,23 @@
+● Here are all the commands in order:
+
+  Stage 1 — Joint SFT (~5 hours)
+  cd /home/drank/dev/poker/player-llm/scripts
+  POKER_EVAL_LIB=/home/drank/dev/poker-eval/poker-eval-cpp/build/libpoker-eval.so \
+  python 01_sft.py \
+      --data /home/drank/dev/poker/player-llm/data/sft_pluribus.jsonl
+
+  Clean fp16 merge (Stage 1 adapter → sft/merged/, ~10 min)
+  python merge_adapter.py
+
+  Stage 2 — Per-player adapters (~5 hours)
+  python 02_lora_per_player.py \
+      --data /home/drank/dev/poker/player-llm/data/sft_pluribus.jsonl
+
+  GGUF conversion — adapter mode (shared base + per-player adapters)
+  python convert_adapters_to_gguf.py --llama-cpp ~/dev/ai/llama.cpp
+
+  GGUF conversion — merged mode (one self-contained file per player)
+  python convert_to_gguf.py --llama-cpp ~/dev/ai/llama.cpp
+
+  The --data flag skips re-parsing the PHH files and uses the JSONL we just regenerated. Stage 1 must fully complete (including the merge step) before Stage 2 can start. The two GGUF conversions are independent of each other and can run in either
+  order after Stage 2.
