@@ -284,7 +284,7 @@ def train_player(
     trainer.model.save_pretrained(str(adapter_dir))
     tokenizer.save_pretrained(str(adapter_dir))
 
-    # Read final metrics
+    # Read final metrics before releasing trainer state
     log = trainer.state.log_history
     final_train = next(
         (e["loss"] for e in reversed(log) if "loss" in e and "eval_loss" not in e),
@@ -295,10 +295,20 @@ def train_player(
     final_eval = next((e["eval_loss"] for e in reversed(log) if "eval_loss" in e), None)
     final_acc  = next((e["eval_mean_token_accuracy"] for e in reversed(log) if "eval_mean_token_accuracy" in e), None)
 
-    # Clean up to free VRAM before next player
-    del trainer, model
+    # Copy metrics out so log/trainer state can be fully released
+    final_train = float(final_train) if final_train is not None else None
+    final_eval  = float(final_eval)  if final_eval  is not None else None
+    final_acc   = float(final_acc)   if final_acc   is not None else None
+
+    # Clean up to free VRAM before next player.
+    # Order matters: release PEFT wrapper first, then base model, then tokenizer.
+    del trainer.model
+    del trainer
+    del model
+    del tokenizer
     gc.collect()
-    torch.cuda.empty_cache()
+    torch.cuda.synchronize()   # wait for all GPU kernels to finish
+    torch.cuda.empty_cache()   # return freed blocks to CUDA allocator
 
     return {
         "player":      player,
