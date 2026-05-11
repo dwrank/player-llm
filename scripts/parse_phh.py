@@ -308,24 +308,26 @@ def iter_decisions(hand: PHHHand) -> Iterator[Decision]:
         # Apply action to mutable state
         if verb == "f":
             folded.add(pidx)
-            street_actions.append((pidx, "fold"))
+            street_actions.append((pidx, "fold", pot))
 
         elif verb == "cc":
-            added = to_call
+            pot_before     = pot
+            added          = to_call
             stacks[pidx]  -= added
             pot           += added
             contrib[pidx]  = current_bet
             label = "check" if to_call == 0 else f"call {int(current_bet)}"
-            street_actions.append((pidx, label))
+            street_actions.append((pidx, label, pot_before))
 
         elif verb == "cbr" and len(parts) > 2:
+            pot_before     = pot
             amount         = float(parts[2])
             added          = amount - contrib[pidx]
             stacks[pidx]  -= added
             pot           += added
             contrib[pidx]  = amount
             current_bet    = amount
-            street_actions.append((pidx, f"raise {int(amount)}"))
+            street_actions.append((pidx, f"raise {int(amount)}", pot_before))
 
 
 def _normalize(verb: str, parts: list, to_call: float) -> str:
@@ -572,8 +574,8 @@ def make_input(
     """
     Build model input messages from raw game parameters.
 
-    All derived fields (board texture, hand strength, draws, board danger)
-    are computed automatically from hole_cards and board.
+    All derived fields (board texture, hand strength, draws, board danger, SPR)
+    are computed automatically from hole_cards, board, pot, and stack.
 
     Args:
         player_name:    Player name for the system prompt.
@@ -586,6 +588,8 @@ def make_input(
         to_call:        Amount hero must call (0 if check option).
         others:         Active opponents as [(position_label, stack), ...].
         street_actions: Actions taken this street as [(position_label, action_str), ...].
+                        Raise strings may include pot-fraction annotations, e.g.
+                        "raise 500 (0.50x pot)".
         bb:             Big blind size in dollars (default 100).
 
     Returns:
@@ -594,6 +598,7 @@ def make_input(
     board_str  = " ".join(board) if board else "none"
     call_str   = "free (check)" if to_call == 0 else f"${to_call:,.0f}"
     others_str = ", ".join(f"{pos} ${stk:,.0f}" for pos, stk in others) or "none"
+    spr        = stack / pot if pot > 0 else 0.0
 
     if street_actions:
         history = ", ".join(f"{pos} {act}" for pos, act in street_actions)
@@ -611,6 +616,7 @@ def make_input(
         f"{hand_lines}"
         f"Pot: ${pot:,.0f}\n"
         f"Your stack: ${stack:,.0f}\n"
+        f"SPR: {spr:.1f}\n"
         f"To call: {call_str}\n"
         f"Other active players: {others_str}\n"
         f"Action so far this street: {history}\n"
@@ -635,10 +641,22 @@ def decision_to_sft(d: Decision, bb: float = 100.0) -> dict:
         for i in range(n)
         if i != d.player_idx and i not in s.folded
     ]
-    street_actions = [
-        (s.positions.get(i, f"P{i+1}"), act)
-        for i, act in s.street_actions
-    ] if s.street_actions else []
+
+    street_actions = []
+    for item in (s.street_actions or []):
+        pidx, act_str = item[0], item[1]
+        pot_then = item[2] if len(item) > 2 else None
+        pos = s.positions.get(pidx, f"P{pidx+1}")
+        if act_str.startswith("raise") and pot_then and pot_then > 0:
+            parts_a = act_str.split()
+            if len(parts_a) >= 2:
+                try:
+                    amt  = float(parts_a[1].replace(",", ""))
+                    frac = amt / pot_then
+                    act_str = f"raise {int(amt):,} ({frac:.2f}x pot)"
+                except ValueError:
+                    pass
+        street_actions.append((pos, act_str))
 
     msgs = make_input(
         player_name   = d.player_name,
@@ -818,10 +836,19 @@ def main() -> None:
                 for decision in iter_decisions(hand):
                     if args.players and decision.player_name not in args.players:
                         continue
-                    out.write(json.dumps(decision_to_sft(decision)) + "\n")
+                    ex   = decision_to_sft(decision)
+                    line = json.dumps(ex) + "\n"
+                    out.write(line)
                     count += 1
                     if args.limit and count >= args.limit:
                         break
+                    # Oversample raise examples 2x to reduce fold bias
+                    char = ex["messages"][-1]["content"]
+                    if len(char) == 1 and ord(char) > ord('#'):
+                        out.write(line)
+                        count += 1
+                        if args.limit and count >= args.limit:
+                            break
             else:
                 text = hand_to_dapt(hand)
                 out.write(text + "\n\n")
