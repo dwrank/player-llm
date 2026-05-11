@@ -2,19 +2,24 @@
 """
 inference.py  —  Run a player adapter for poker action prediction.
 
-Loads the SFT merged base model and a per-player LoRA adapter, then generates
-actions for game states using the same chat format as training.
+Loads the SFT merged base model and a per-player LoRA adapter, then predicts
+a single action class token for each game state.  The model outputs one of 22
+ASCII characters ('!' through '6') which are decoded to human-readable labels.
+See docs/action-classes.md for the full class table.
 
 Game state format (user message, passed via --state, file, or stdin):
-    Street: Preflop
+    Street: Flop
     Position: BTN
     Your hole cards: Ah Kd
-    Board: none
-    Pot: $300
-    Your stack: $9,800
-    To call: $100
-    Other active players: SB $9,950, BB $9,900
-    Action so far this street: UTG fold, HJ fold, CO fold
+    Board: Qh Jh 2c
+    Board texture: Unpaired, Two-tone, Connected
+    Your hand: Ace-King offsuit
+    Pot: $520
+    Your stack: $9,790
+    SPR: 18.8
+    To call: free (check)
+    Other active players: SB $9,480, BB $9,900
+    Action so far this street: UTG fold, HJ raise 210 (1.40x pot)
     Your action?
 
 Usage:
@@ -42,6 +47,9 @@ import json
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from action_classes import CLASS_CHARS, CLASS_TOKENS_LIST, char_to_display
+
 BASE_MODEL   = Path("/data/models/qwen2.5-1.5b-instruct/sft/merged")
 ADAPTER_ROOT = Path("/data/models/qwen2.5-1.5b-instruct/adapters")
 
@@ -49,14 +57,28 @@ KNOWN_PLAYERS = [
     "Pluribus", "MrBlue", "MrOrange", "Bill", "MrPink", "Eddie", "MrWhite",
 ]
 
-# Match training system prompt exactly
+
 def system_prompt(player: str, blinds: str = "$50/$100", stacks: str = "$10,000") -> str:
     return (
         f"You are {player}, playing 6-handed no-limit Texas Hold'em "
         f"({blinds} blinds, {stacks} starting stacks). "
         f"Make the decision {player} would make. "
-        f"Reply with exactly one of: fold | check | call | raise <total_amount>"
+        f"Reply with exactly one of: " + CLASS_TOKENS_LIST
     )
+
+
+def get_class_token_ids(tokenizer) -> list[int]:
+    """Resolve HuggingFace token IDs for the 22 class characters."""
+    ids = []
+    for ch in CLASS_CHARS:
+        enc = tokenizer.encode(ch, add_special_tokens=False)
+        if len(enc) == 1:
+            ids.append(enc[0])
+        else:
+            # Some tokenizers prepend a BPE artifact; take the last token
+            enc2 = tokenizer.encode(" " + ch, add_special_tokens=False)
+            ids.append(enc2[-1])
+    return ids
 
 
 def parse_args() -> argparse.Namespace:
@@ -95,7 +117,8 @@ def parse_args() -> argparse.Namespace:
                    help="Output JSONL path for --batch mode (default: stdout)")
 
     g = p.add_argument_group("generation")
-    g.add_argument("--max-new-tokens", type=int, default=16)
+    g.add_argument("--max-new-tokens", type=int, default=1,
+                   help="Tokens to generate (1 = single class character)")
     g.add_argument("--temperature",    type=float, default=0.0,
                    help="0 = greedy (deterministic), >0 = sampling")
     g.add_argument("--top-p",          type=float, default=1.0)
@@ -159,18 +182,35 @@ def attach_adapter(model, player: str, adapter_root: Path):
 
 # ── Inference ─────────────────────────────────────────────────────────────────
 
+class _ClassOnlyProcessor:
+    """LogitsProcessor that forces output to one of the 22 class token IDs."""
+    def __init__(self, class_token_ids: list[int], vocab_size: int):
+        import torch
+        mask = torch.ones(vocab_size, dtype=torch.bool)
+        for i in class_token_ids:
+            mask[i] = False
+        self._suppress_mask = mask  # True = suppress this token
+
+    def __call__(self, input_ids, scores):
+        mask = self._suppress_mask.to(scores.device)
+        scores[:, mask] = float("-inf")
+        return scores
+
+
 def predict(
     model,
     tokenizer,
     player: str,
     state: str,
     args: argparse.Namespace,
+    class_token_ids: list[int],
 ) -> str:
     import torch
+    from transformers import LogitsProcessorList
 
     messages = [
-        {"role": "system",    "content": system_prompt(player, args.blinds, args.stacks)},
-        {"role": "user",      "content": state.strip()},
+        {"role": "system", "content": system_prompt(player, args.blinds, args.stacks)},
+        {"role": "user",   "content": state.strip()},
     ]
 
     prompt = tokenizer.apply_chat_template(
@@ -183,10 +223,13 @@ def predict(
     mask = enc.attention_mask.to(model.device)
 
     gen_kwargs: dict = {
-        "attention_mask":  mask,
-        "max_new_tokens":  args.max_new_tokens,
-        "pad_token_id":    tokenizer.pad_token_id or tokenizer.eos_token_id,
-        "eos_token_id":    tokenizer.eos_token_id,
+        "attention_mask":   mask,
+        "max_new_tokens":   1,
+        "pad_token_id":     tokenizer.pad_token_id or tokenizer.eos_token_id,
+        "eos_token_id":     tokenizer.eos_token_id,
+        "logits_processor": LogitsProcessorList([
+            _ClassOnlyProcessor(class_token_ids, model.config.vocab_size)
+        ]),
     }
     if args.temperature > 0:
         gen_kwargs.update(do_sample=True, temperature=args.temperature, top_p=args.top_p)
@@ -196,10 +239,8 @@ def predict(
     with torch.no_grad():
         out = model.generate(ids, **gen_kwargs)
 
-    action = tokenizer.decode(
-        out[0][ids.shape[-1]:], skip_special_tokens=True
-    ).strip()
-    return action
+    char = tokenizer.decode(out[0][ids.shape[-1]:], skip_special_tokens=True).strip()
+    return char_to_display(char)
 
 
 # ── Input helpers ─────────────────────────────────────────────────────────────
@@ -221,7 +262,10 @@ def read_state_from_stdin() -> str:
     return sys.stdin.read()
 
 
-def interactive_loop(model, tokenizer, players: list[str], args: argparse.Namespace) -> None:
+def interactive_loop(
+    model, tokenizer, players: list[str], args: argparse.Namespace,
+    class_token_ids: list[int],
+) -> None:
     print(f"Player(s): {', '.join(players)}", file=sys.stderr)
     print("Paste game state, blank line to predict. Ctrl-C to quit.\n", file=sys.stderr)
     while True:
@@ -232,7 +276,7 @@ def interactive_loop(model, tokenizer, players: list[str], args: argparse.Namesp
             for player in players:
                 if len(players) > 1 and hasattr(model, "set_adapter"):
                     model.set_adapter(player)
-                action = predict(model, tokenizer, player, state, args)
+                action = predict(model, tokenizer, player, state, args, class_token_ids)
                 prefix = f"{player}: " if len(players) > 1 else ""
                 print(f"{prefix}{action}")
             print()
@@ -243,7 +287,9 @@ def interactive_loop(model, tokenizer, players: list[str], args: argparse.Namesp
             break
 
 
-def run_batch(model, tokenizer, args: argparse.Namespace) -> None:
+def run_batch(
+    model, tokenizer, args: argparse.Namespace, class_token_ids: list[int],
+) -> None:
     out = open(args.output, "w") if args.output else sys.stdout
     try:
         with open(args.batch) as f:
@@ -256,7 +302,7 @@ def run_batch(model, tokenizer, args: argparse.Namespace) -> None:
                         model.set_adapter(player)
                     except Exception:
                         pass
-                action = predict(model, tokenizer, player, state, args)
+                action = predict(model, tokenizer, player, state, args, class_token_ids)
                 out.write(json.dumps({"player": player, "state": state, "action": action}) + "\n")
                 if i % 100 == 0:
                     print(f"  {i} predictions done", file=sys.stderr)
@@ -283,6 +329,7 @@ def main() -> None:
         sys.exit(1)
 
     model, tokenizer = load_base(args)
+    class_token_ids  = get_class_token_ids(tokenizer)
 
     if not args.no_adapter and players:
         # Load first adapter; additional adapters loaded lazily via set_adapter
@@ -294,11 +341,11 @@ def main() -> None:
     model.eval()
 
     if args.batch:
-        run_batch(model, tokenizer, args)
+        run_batch(model, tokenizer, args, class_token_ids)
         return
 
     if args.interactive or (not args.state and sys.stdin.isatty()):
-        interactive_loop(model, tokenizer, players or ["base"], args)
+        interactive_loop(model, tokenizer, players or ["base"], args, class_token_ids)
         return
 
     # Single prediction
@@ -306,7 +353,7 @@ def main() -> None:
     for player in (players or ["base"]):
         if len(players) > 1 and hasattr(model, "set_adapter"):
             model.set_adapter(player)
-        action = predict(model, tokenizer, player, state, args)
+        action = predict(model, tokenizer, player, state, args, class_token_ids)
         prefix = f"{player}: " if len(players) > 1 else ""
         print(f"{prefix}{action}")
 
