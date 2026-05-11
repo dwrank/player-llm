@@ -4,3 +4,4 @@
 .*.swp
 *.pyc
 temp/
+data/
