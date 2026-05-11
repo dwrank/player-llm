@@ -176,19 +176,22 @@ class SampleCallback:
                 out = model.generate(
                     ids,
                     attention_mask=mask,
-                    max_new_tokens=12,
+                    max_new_tokens=1,
                     do_sample=False,
                     pad_token_id=self.tokenizer.pad_token_id,
                 )
-            pred = self.tokenizer.decode(
+            pred_char = self.tokenizer.decode(
                 out[0][ids.shape[-1]:], skip_special_tokens=True
             ).strip()
+            from action_classes import char_to_display, char_to_display
+            pred_label = char_to_display(label) if label else "?"
+            pred_disp  = f"{pred_char}={char_to_display(pred_char)}" if pred_char else "?"
             # Print just the relevant context line from the user message
             user_lines = msgs[1]["content"].split("\n")
             cards_line  = next((l for l in user_lines if "hole cards" in l), "")
             street_line = next((l for l in user_lines if "Street:" in l), "")
             print(f"  {street_line}  {cards_line}")
-            print(f"  label={label!r:15s}  pred={pred!r}")
+            print(f"  label={label}({pred_label})  pred={pred_disp}")
         print("────────────────────────────────────────────────────────\n")
         model.train()
 
@@ -207,6 +210,7 @@ def run_training(args, model, tokenizer, train_ds, eval_ds):
         lora_dropout=0.05,
         bias="none",
         task_type="CAUSAL_LM",
+        modules_to_save=["lm_head"],   # train classification head; saved with adapter
     )
 
     # Packing requires flash_attention_2 for correct cross-sequence masking.
@@ -344,6 +348,11 @@ def save(args, trainer, tokenizer) -> None:
     # (~1.1 GB). For a clean fp16/bf16 merge, run merge_adapter.py separately.
     print("Merging LoRA into base weights ...")
     merged = trainer.model.merge_and_unload()
+
+    # Zero lm_head rows 22+ so non-class tokens never win argmax at inference.
+    with torch.no_grad():
+        merged.lm_head.weight[22:] = 0.0
+    print("Classification head: zeroed lm_head rows 22+ (vocab size → 22 active classes)")
 
     merged_dir = args.output / "merged"
     merged_dir.mkdir(parents=True, exist_ok=True)

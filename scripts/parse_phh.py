@@ -36,6 +36,11 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Iterator, Optional
 
+from action_classes import (
+    CLASS_TO_CHAR, CLASS_TOKENS_LIST,
+    action_to_class, raise_to_class,
+)
+
 # ── Data classes ──────────────────────────────────────────────────────────────
 
 @dataclass
@@ -341,7 +346,7 @@ _SYSTEM = (
     "You are {name}, playing 6-handed no-limit Texas Hold'em "
     "($50/$100 blinds, $10,000 starting stacks). "
     "Make the decision {name} would make. "
-    "Reply with exactly one of: fold | check | call | raise <total_amount>"
+    "Reply with exactly one of: " + CLASS_TOKENS_LIST
 )
 
 
@@ -526,77 +531,138 @@ def _board_danger_desc(hole: list[str], board: list[str]) -> str | None:
     return ", ".join(dangers) if dangers else None
 
 
-def decision_to_sft(d: Decision) -> dict:
-    s = d.state
-    n = len(s.hand.players)
+def _build_hand_lines(hole_list: list[str], board: list[str]) -> str:
+    """Compute derived hand-feature lines for the user message."""
+    if not hole_list:
+        return ""
+    if board:
+        hand_desc   = _postflop_hand_desc(hole_list, board)
+        texture_str = _board_texture(board)
+        draws_str   = _draw_desc(hole_list, board)
+        danger_str  = _board_danger_desc(hole_list, board)
+    else:
+        hand_desc   = _preflop_hand_desc(hole_list)
+        texture_str = draws_str = danger_str = None
 
-    cards     = s.hole_cards.get(d.player_idx, "??")
-    board_str = " ".join(s.board) if s.board else "none"
-    to_call   = max(0.0, s.current_bet - s.contrib[d.player_idx])
+    lines = ""
+    if texture_str:
+        lines += f"Board texture: {texture_str}\n"
+    if hand_desc:
+        lines += f"Your hand: {hand_desc}\n"
+    if draws_str:
+        lines += f"Your draws: {draws_str}\n"
+    if danger_str:
+        lines += f"Board danger: {danger_str}\n"
+    return lines
 
-    # Other active players and their stacks
-    others = [
-        f"{s.positions.get(i, f'P{i+1}')} ${s.stacks[i]:,.0f}"
-        for i in range(n)
-        if i != d.player_idx and i not in s.folded
-    ]
 
-    # Action history this street
-    if s.street_actions:
-        history = ", ".join(
-            f"{s.positions.get(i, f'P{i+1}')} {act}"
-            for i, act in s.street_actions
-        )
+def make_input(
+    player_name: str,
+    street: str,
+    position: str,
+    hole_cards: list[str],
+    board: list[str],
+    pot: float,
+    stack: float,
+    to_call: float,
+    others: list[tuple[str, float]],
+    street_actions: list[tuple[str, str]],
+    bb: float = 100.0,
+) -> dict[str, str]:
+    """
+    Build model input messages from raw game parameters.
+
+    All derived fields (board texture, hand strength, draws, board danger)
+    are computed automatically from hole_cards and board.
+
+    Args:
+        player_name:    Player name for the system prompt.
+        street:         "Preflop" | "Flop" | "Turn" | "River"
+        position:       Seat label, e.g. "BTN", "SB", "BB", "UTG", "HJ", "CO"
+        hole_cards:     Hero's hole cards, e.g. ["Ah", "Kd"]. Empty if unknown.
+        board:          Community cards dealt so far. Empty list for preflop.
+        pot:            Current pot size in dollars.
+        stack:          Hero's remaining stack in dollars.
+        to_call:        Amount hero must call (0 if check option).
+        others:         Active opponents as [(position_label, stack), ...].
+        street_actions: Actions taken this street as [(position_label, action_str), ...].
+        bb:             Big blind size in dollars (default 100).
+
+    Returns:
+        {"system": str, "user": str}  — ready for chat-template assembly.
+    """
+    board_str  = " ".join(board) if board else "none"
+    call_str   = "free (check)" if to_call == 0 else f"${to_call:,.0f}"
+    others_str = ", ".join(f"{pos} ${stk:,.0f}" for pos, stk in others) or "none"
+
+    if street_actions:
+        history = ", ".join(f"{pos} {act}" for pos, act in street_actions)
     else:
         history = "first to act"
 
-    call_str = "free (check)" if to_call == 0 else f"${to_call:,.0f}"
-
-    # Hand features
-    hole_list = cards.split() if "?" not in cards else []
-    if hole_list:
-        if s.board:
-            hand_desc    = _postflop_hand_desc(hole_list, list(s.board))
-            texture_str  = _board_texture(list(s.board))
-            draws_str    = _draw_desc(hole_list, list(s.board))
-            danger_str   = _board_danger_desc(hole_list, list(s.board))
-        else:
-            hand_desc    = _preflop_hand_desc(hole_list)
-            texture_str  = None
-            draws_str    = None
-            danger_str   = None
-    else:
-        hand_desc = texture_str = draws_str = danger_str = None
-
-    hand_lines = ""
-    if texture_str:
-        hand_lines += f"Board texture: {texture_str}\n"
-    if hand_desc:
-        hand_lines += f"Your hand: {hand_desc}\n"
-    if draws_str:
-        hand_lines += f"Your draws: {draws_str}\n"
-    if danger_str:
-        hand_lines += f"Board danger: {danger_str}\n"
+    hand_lines = _build_hand_lines(hole_cards, board)
+    cards_str  = " ".join(hole_cards) if hole_cards else "?? ??"
 
     user_msg = (
-        f"Street: {s.street}\n"
-        f"Position: {d.position}\n"
-        f"Your hole cards: {cards}\n"
+        f"Street: {street}\n"
+        f"Position: {position}\n"
+        f"Your hole cards: {cards_str}\n"
         f"Board: {board_str}\n"
         f"{hand_lines}"
-        f"Pot: ${s.pot:,.0f}\n"
-        f"Your stack: ${s.stacks[d.player_idx]:,.0f}\n"
+        f"Pot: ${pot:,.0f}\n"
+        f"Your stack: ${stack:,.0f}\n"
         f"To call: {call_str}\n"
-        f"Other active players: {', '.join(others) or 'none'}\n"
+        f"Other active players: {others_str}\n"
         f"Action so far this street: {history}\n"
         "Your action?"
     )
 
     return {
+        "system": _SYSTEM.format(name=player_name),
+        "user":   user_msg,
+    }
+
+
+def decision_to_sft(d: Decision, bb: float = 100.0) -> dict:
+    s = d.state
+    n = len(s.hand.players)
+
+    cards   = s.hole_cards.get(d.player_idx, "??")
+    to_call = max(0.0, s.current_bet - s.contrib[d.player_idx])
+
+    others = [
+        (s.positions.get(i, f"P{i+1}"), s.stacks[i])
+        for i in range(n)
+        if i != d.player_idx and i not in s.folded
+    ]
+    street_actions = [
+        (s.positions.get(i, f"P{i+1}"), act)
+        for i, act in s.street_actions
+    ] if s.street_actions else []
+
+    msgs = make_input(
+        player_name   = d.player_name,
+        street        = s.street,
+        position      = d.position,
+        hole_cards    = cards.split() if "?" not in cards else [],
+        board         = list(s.board),
+        pot           = s.pot,
+        stack         = s.stacks[d.player_idx],
+        to_call       = to_call,
+        others        = others,
+        street_actions= street_actions,
+        bb            = bb,
+    )
+
+    # Convert raw action to single class character
+    cls  = action_to_class(d.action, s.pot, s.stacks[d.player_idx], s.street, bb)
+    char = CLASS_TO_CHAR[cls]
+
+    return {
         "messages": [
-            {"role": "system",    "content": _SYSTEM.format(name=d.player_name)},
-            {"role": "user",      "content": user_msg},
-            {"role": "assistant", "content": d.action},
+            {"role": "system",    "content": msgs["system"]},
+            {"role": "user",      "content": msgs["user"]},
+            {"role": "assistant", "content": char},
         ],
         "player": d.player_name,
         "street": s.street,

@@ -35,12 +35,23 @@ import json
 import sys
 from pathlib import Path
 
-GGUF_DIR     = Path("/data/models/qwen2.5-1.5b-instruct/gguf")
+# Resolve action_classes relative to this script's directory
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from action_classes import (
+    CLASS_VOCAB_IDS, CLASS_TOKENS_LIST,
+    char_to_display, CHAR_TO_CLASS,
+)
+
+GGUF_DIR      = Path("/data/models/qwen2.5-1.5b-instruct/gguf")
 DEFAULT_QUANT = "Q4_K_M"
 
 KNOWN_PLAYERS = [
     "Pluribus", "MrBlue", "MrOrange", "Bill", "MrPink", "Eddie", "MrWhite",
 ]
+
+# Logit bias: suppress every token that is not one of the 22 class tokens.
+# Applied at inference so the model always outputs a valid class character.
+_NON_CLASS_BIAS = {i: -1e9 for i in range(32000) if i not in CLASS_VOCAB_IDS}
 
 
 def system_prompt(player: str, blinds: str = "$50/$100", stacks: str = "$10,000") -> str:
@@ -48,7 +59,7 @@ def system_prompt(player: str, blinds: str = "$50/$100", stacks: str = "$10,000"
         f"You are {player}, playing 6-handed no-limit Texas Hold'em "
         f"({blinds} blinds, {stacks} starting stacks). "
         f"Make the decision {player} would make. "
-        f"Reply with exactly one of: fold | check | call | raise <total_amount>"
+        f"Reply with exactly one of: " + CLASS_TOKENS_LIST
     )
 
 
@@ -95,7 +106,7 @@ def parse_args() -> argparse.Namespace:
                    help="Output JSONL for --batch (default: stdout)")
 
     g = p.add_argument_group("generation")
-    g.add_argument("--max-tokens",  type=int,   default=16)
+    g.add_argument("--max-tokens",  type=int,   default=1)
     g.add_argument("--temperature", type=float, default=0.0,
                    help="0 = greedy (deterministic)")
     g.add_argument("--top-p",       type=float, default=1.0)
@@ -168,18 +179,19 @@ def predict(llm, player: str, state: str, args: argparse.Namespace) -> str:
     ]
 
     kwargs: dict = {
-        "messages":   messages,
-        "max_tokens": args.max_tokens,
+        "messages":    messages,
+        "max_tokens":  args.max_tokens,
         "temperature": args.temperature,
         "top_p":       args.top_p,
+        "logit_bias":  _NON_CLASS_BIAS,
         "stream":      False,
     }
     if args.temperature == 0.0:
-        # Greedy — top_k=1 is cleaner than temperature=0 in some builds
         kwargs["top_k"] = 1
 
     response = llm.create_chat_completion(**kwargs)
-    return response["choices"][0]["message"]["content"].strip()
+    char = response["choices"][0]["message"]["content"].strip()
+    return char_to_display(char)   # e.g. '/' → '1/3 pot'
 
 
 # ── Input helpers ─────────────────────────────────────────────────────────────
