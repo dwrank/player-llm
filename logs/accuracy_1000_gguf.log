@@ -1,0 +1,121 @@
+Variants : gguf-f16, gguf-q8, gguf-q4
+Loading eval split (seed=42, split=0.1) ...
+llama_context: n_ctx_seq (512) < n_ctx_train (32768) -- the full capacity of the model will not be utilized
+Sampled 6807 examples across 7 players (1000 per player max)
+
+── GGUF f16+lora ───────────────────────────────────────────────
+  GGUF f16+lora  MrWhite      exact 741/807 (91.8%)
+llama_context: n_ctx_seq (512) < n_ctx_train (32768) -- the full capacity of the model will not be utilized
+  GGUF f16+lora  MrPink       exact 918/1000 (91.8%)
+llama_context: n_ctx_seq (512) < n_ctx_train (32768) -- the full capacity of the model will not be utilized
+  GGUF f16+lora  Pluribus     exact 831/1000 (83.1%)
+llama_context: n_ctx_seq (512) < n_ctx_train (32768) -- the full capacity of the model will not be utilized
+  GGUF f16+lora  MrBlue       exact 898/1000 (89.8%)
+llama_context: n_ctx_seq (512) < n_ctx_train (32768) -- the full capacity of the model will not be utilized
+  GGUF f16+lora  MrOrange     exact 881/1000 (88.1%)
+llama_context: n_ctx_seq (512) < n_ctx_train (32768) -- the full capacity of the model will not be utilized
+  GGUF f16+lora  Eddie        exact 893/1000 (89.3%)
+llama_context: n_ctx_seq (512) < n_ctx_train (32768) -- the full capacity of the model will not be utilized
+  GGUF f16+lora  Bill         exact 906/1000 (90.6%)
+llama_context: n_ctx_seq (512) < n_ctx_train (32768) -- the full capacity of the model will not be utilized
+
+── GGUF Q8+lora ────────────────────────────────────────────────
+  GGUF Q8+lora   MrWhite      exact 738/807 (91.4%)
+llama_context: n_ctx_seq (512) < n_ctx_train (32768) -- the full capacity of the model will not be utilized
+  GGUF Q8+lora   MrPink       exact 916/1000 (91.6%)
+llama_context: n_ctx_seq (512) < n_ctx_train (32768) -- the full capacity of the model will not be utilized
+  GGUF Q8+lora   Pluribus     exact 832/1000 (83.2%)
+llama_context: n_ctx_seq (512) < n_ctx_train (32768) -- the full capacity of the model will not be utilized
+  GGUF Q8+lora   MrBlue       exact 898/1000 (89.8%)
+llama_context: n_ctx_seq (512) < n_ctx_train (32768) -- the full capacity of the model will not be utilized
+  GGUF Q8+lora   MrOrange     exact 881/1000 (88.1%)
+llama_context: n_ctx_seq (512) < n_ctx_train (32768) -- the full capacity of the model will not be utilized
+  GGUF Q8+lora   Eddie        exact 893/1000 (89.3%)
+llama_context: n_ctx_seq (512) < n_ctx_train (32768) -- the full capacity of the model will not be utilized
+  GGUF Q8+lora   Bill         exact 909/1000 (90.9%)
+llama_context: n_ctx_seq (512) < n_ctx_train (32768) -- the full capacity of the model will not be utilized
+
+── GGUF Q4+lora ────────────────────────────────────────────────
+  GGUF Q4+lora   MrWhite      exact 737/807 (91.3%)
+llama_context: n_ctx_seq (512) < n_ctx_train (32768) -- the full capacity of the model will not be utilized
+  GGUF Q4+lora   MrPink       exact 897/1000 (89.7%)
+llama_context: n_ctx_seq (512) < n_ctx_train (32768) -- the full capacity of the model will not be utilized
+  GGUF Q4+lora   Pluribus     exact 824/1000 (82.4%)
+llama_context: n_ctx_seq (512) < n_ctx_train (32768) -- the full capacity of the model will not be utilized
+  GGUF Q4+lora   MrBlue       exact 891/1000 (89.1%)
+llama_context: n_ctx_seq (512) < n_ctx_train (32768) -- the full capacity of the model will not be utilized
+  GGUF Q4+lora   MrOrange     exact 872/1000 (87.2%)
+llama_context: n_ctx_seq (512) < n_ctx_train (32768) -- the full capacity of the model will not be utilized
+  GGUF Q4+lora   Eddie        exact 879/1000 (87.9%)
+llama_context: n_ctx_seq (512) < n_ctx_train (32768) -- the full capacity of the model will not be utilized
+  GGUF Q4+lora   Bill         exact 904/1000 (90.4%)
+
+
+================================================
+Accuracy vs ground truth  (exact class match)
+================================================
+Player        GGUF f16+lora  GGUF Q8+lora  GGUF Q4+lora
+────────────────────────────────────────────────
+MrWhite          91.8%       91.4%       91.3%  
+MrPink           91.8%       91.6%       89.7%  
+Pluribus         83.1%       83.2%       82.4%  
+MrBlue           89.8%       89.8%       89.1%  
+MrOrange         88.1%       88.1%       87.2%  
+Eddie            89.3%       89.3%       87.9%  
+Bill             90.6%       90.9%       90.4%  
+────────────────────────────────────────────────
+TOTAL            89.1%       89.1%       88.2%  
+
+Exact match by action type
+────────────────────────────────────────────────
+  action     GGUF f16+lora      GGUF Q8+lora      GGUF Q4+lora  
+  fold      2908/3010 ( 96.6%)  2905/3010 ( 96.5%)  2912/3010 ( 96.7%)
+  call      518/632 ( 82.0%)  520/632 ( 82.3%)  517/632 ( 81.8%)
+  check     781/922 ( 84.7%)  780/922 ( 84.6%)  790/922 ( 85.7%)
+  raise     1861/2243 ( 83.0%)  1862/2243 ( 83.0%)  1785/2243 ( 79.6%)
+
+Raise class analysis  (ground truth = raise)
+────────────────────────────────────────────────
+  GGUF f16+lora  n=2243
+    predicted raise : 2029/2243 (90.5%)
+    exact class     : 1861/2243 (83.0%)
+    within 1 class  : 1978/2243 (88.2%)
+    top wrong preds : 2bb:43  2.5bb:37  1/3 pot:22  1/2 pot:12  pot:12
+    top truth miss  : 2.5bb:42  2bb:22  1/2 pot:18  3bb:18  pot:15
+
+  GGUF Q8+lora  n=2243
+    predicted raise : 2028/2243 (90.4%)
+    exact class     : 1862/2243 (83.0%)
+    within 1 class  : 1978/2243 (88.2%)
+    top wrong preds : 2bb:41  2.5bb:38  1/3 pot:22  1/2 pot:12  pot:12
+    top truth miss  : 2.5bb:41  2bb:23  1/2 pot:18  3bb:18  pot:15
+
+  GGUF Q4+lora  n=2243
+    predicted raise : 1954/2243 (87.1%)
+    exact class     : 1785/2243 (79.6%)
+    within 1 class  : 1899/2243 (84.7%)
+    top wrong preds : 2bb:36  2.5bb:35  pot:17  2/3 pot:16  1/2 pot:16
+    top truth miss  : 2.5bb:35  1/2 pot:21  pot:20  2bb:19  3bb:17
+
+
+Accuracy by street
+────────────────────────────────────────────────
+  street      GGUF f16+lora  GGUF Q8+lora  GGUF Q4+lora
+────────────────────────────────────────────────
+  Preflop        93.1%       93.2%       92.9%  
+  Flop           82.0%       82.0%       80.4%  
+  Turn           82.6%       82.3%       81.2%  
+  River          79.3%       79.1%       74.7%  
+
+Accuracy by board texture  (flop / turn / river)
+────────────────────────────────────────────────
+  texture           GGUF f16+lora  GGUF Q8+lora  GGUF Q4+lora
+────────────────────────────────────────────────
+  unpaired             82.5%       82.2%       80.5%  
+  paired               79.5%       79.5%       76.5%  
+  rainbow              83.4%       83.6%       81.8%  
+  two-tone             81.3%       81.1%       78.8%  
+  flush possible       80.4%       79.9%       78.2%  
+  unconnected          85.2%       85.2%       84.8%  
+  connected            81.1%       80.9%       78.6%  
+================================================

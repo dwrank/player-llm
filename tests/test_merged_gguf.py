@@ -17,19 +17,21 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
+from action_classes import CLASSES
 from game_states import ALL_PLAYERS, PREFLOP_FOLD, FLOP_RAISE
 
 GGUF_DIR = Path("/data/models/qwen2.5-1.5b-instruct/gguf")
 
-VALID_ACTIONS = {"fold", "check", "call"}
+_VALID_LABELS = set(CLASSES)
+_RAISE_LABELS = set(CLASSES[3:])
 
 
 def is_valid(action: str) -> bool:
-    a = action.strip().lower()
-    if a in VALID_ACTIONS:
-        return True
-    parts = a.split()
-    return len(parts) == 2 and parts[0] == "raise" and parts[1].lstrip("$").isdigit()
+    return action.strip() in _VALID_LABELS
+
+
+def is_raise(action: str) -> bool:
+    return action.strip() in _RAISE_LABELS
 
 
 def run_player(player: str, quant: str, state: str) -> str:
@@ -42,7 +44,7 @@ def run_player(player: str, quant: str, state: str) -> str:
 
     args = argparse.Namespace(
         blinds="$50/$100", stacks="$10,000",
-        max_tokens=16, temperature=0.0, top_p=1.0,
+        max_tokens=1, temperature=0.0, top_p=1.0,
         gpu_layers=-1, threads=None, ctx=512, verbose=False,
         lora_scale=1.0,
     )
@@ -72,7 +74,7 @@ def main() -> None:
         for player in ALL_PLAYERS:
             action = run_player(player, mode, state)
             valid  = is_valid(action)
-            ok     = action == "fold" if not check_raise else action.startswith("raise")
+            ok     = action == "fold" if not check_raise else is_raise(action)
             known_artifact = (check_raise and player == "MrWhite"
                               and action == "check" and mrwhite_q4_known_check)
             if known_artifact:
@@ -97,9 +99,9 @@ def main() -> None:
             print(f"  SKIP  MrWhite {quant} — file not found")
             continue
         action = run_player("MrWhite", quant, FLOP_RAISE)
-        is_raise = action.startswith("raise")
+        action_is_raise = is_raise(action)
         if expect_raise:
-            status = "OK" if is_raise else "FAIL"
+            status = "OK" if action_is_raise else "FAIL"
             note   = "raises as expected"
         else:
             # Q4_K_M known to produce "check" — we document this, not fail on it
@@ -107,7 +109,7 @@ def main() -> None:
             note   = "checks (Q4_K_M quantization artifact)"
         if status == "FAIL":
             failures += 1
-        print(f"  {status}  MrWhite {quant:<8} → {action:<15} ({note})")
+        print(f"  {status}  MrWhite {quant:<8} → {action:<20} ({note})")
 
     print()
     print("=" * 60)

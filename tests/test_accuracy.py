@@ -5,9 +5,9 @@ test_accuracy.py  —  Compare inference variants against ground truth player ac
 Uses the exact validation split from 02_lora_per_player.py (seed=42, eval_split=0.1).
 Samples --n-samples examples per player.
 
-Scoring:
-  exact    = exact string match
-  weighted = exact for fold/check/call; raise scored by 1 - |pred-amt - truth-amt| / truth-amt
+Ground truth in the JSONL is a single class character ('!' through '6').
+Predicted output is the decoded class label ("fold", "1/2 pot", etc.).
+All scoring is exact class match.
 
 Available variants:
   hf        HuggingFace fp16 base + safetensors adapters
@@ -30,6 +30,7 @@ from collections import Counter
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
+from action_classes import CLASSES, char_to_display
 
 DATA_PATH        = Path(__file__).parent.parent / "data" / "sft_pluribus.jsonl"
 BASE_MODEL       = Path("/data/models/qwen2.5-1.5b-instruct/sft/merged")
@@ -41,8 +42,9 @@ TRAINED_PLAYERS = ["Pluribus", "MrBlue", "MrOrange", "Bill", "MrPink", "Eddie", 
 
 EVAL_SPLIT  = 0.1
 SEED        = 42
-TOLERANCES  = [0.05, 0.10, 0.25]
 RANK_ORDER  = "23456789TJQKA"
+
+_RAISE_LABELS = set(CLASSES[3:])
 
 # Variant registry: name → (display label, base gguf or None for HF)
 VARIANT_DEFS: dict[str, tuple[str, Path | None]] = {
@@ -88,42 +90,21 @@ def sample_examples(eval_by_player: dict[str, list], n: int, seed: int) -> dict[
 
 # ── Scoring ───────────────────────────────────────────────────────────────────
 
-def action_type(action: str) -> str:
-    a = action.strip().lower()
-    return a.split()[0] if a else ""
-
-
-def parse_raise_amount(action: str) -> int | None:
-    parts = action.strip().lower().split()
-    if len(parts) == 2 and parts[0] == "raise":
-        try:
-            return int(parts[1].lstrip("$"))
-        except ValueError:
-            pass
-    return None
-
-
-def score(pred: str, truth: str) -> float:
-    """
-    Score in [0, 1]. Non-raise: exact match. Raise: linear decay by relative error
-    when both are raises, 0.0 when the predicted action type differs.
-    """
-    t_amt = parse_raise_amount(truth)
-    if t_amt is None:
-        return 1.0 if pred == truth else 0.0
-    p_amt = parse_raise_amount(pred)
-    if p_amt is None:
-        return 0.0
-    return max(0.0, 1.0 - abs(p_amt - t_amt) / t_amt)
+def action_type(label: str) -> str:
+    """Return "fold", "check", "call", or "raise" for any raise class."""
+    label = label.strip()
+    if label in ("fold", "check", "call"):
+        return label
+    if label in _RAISE_LABELS:
+        return "raise"
+    return ""
 
 
 def _print_progress(label: str, player: str, pairs: list[tuple[str, str]]) -> None:
-    n = len(pairs)
+    n     = len(pairs)
     exact = sum(p == t for p, t in pairs)
-    wtd   = sum(score(p, t) for p, t in pairs)
     print(f"  {label:<14} {player:<12} "
-          f"exact {exact:3}/{n} ({100*exact/n:.1f}%)  "
-          f"weighted {wtd:.1f}/{n} ({100*wtd/n:.1f}%)", flush=True)
+          f"exact {exact:3}/{n} ({100*exact/n:.1f}%)", flush=True)
 
 
 # ── Board texture ─────────────────────────────────────────────────────────────
@@ -181,11 +162,11 @@ def run_hf(samples: dict[str, list], label: str) -> dict[str, list[tuple[str, st
     import torch
     from transformers import AutoModelForCausalLM, AutoTokenizer
     from peft import PeftModel
-    from inference import predict
+    from inference import predict, get_class_token_ids
 
     inf_args = argparse.Namespace(
         blinds="$50/$100", stacks="$10,000",
-        max_new_tokens=16, temperature=0.0, top_p=1.0,
+        temperature=0.0, top_p=1.0,
     )
 
     print("Loading HF base model ...", flush=True)
@@ -194,6 +175,7 @@ def run_hf(samples: dict[str, list], label: str) -> dict[str, list[tuple[str, st
         device_map="auto", attn_implementation="sdpa",
     )
     tokenizer = AutoTokenizer.from_pretrained(str(BASE_MODEL))
+    class_token_ids = get_class_token_ids(tokenizer)
     model.eval()
 
     players = list(samples.keys())
@@ -208,9 +190,10 @@ def run_hf(samples: dict[str, list], label: str) -> dict[str, list[tuple[str, st
         model.set_adapter(player)
         pairs = []
         for ex in examples:
-            state = ex["messages"][1]["content"]
-            truth = ex["messages"][2]["content"].strip().lower()
-            pred  = predict(model, tokenizer, player, state, inf_args).strip().lower()
+            state      = ex["messages"][1]["content"]
+            truth_char = ex["messages"][2]["content"].strip()
+            truth      = char_to_display(truth_char)
+            pred       = predict(model, tokenizer, player, state, inf_args, class_token_ids)
             pairs.append((pred, truth))
         results[player] = pairs
         _print_progress(label, player, pairs)
@@ -230,7 +213,7 @@ def run_gguf(samples: dict[str, list], base_path: Path,
 
     inf_args = argparse.Namespace(
         blinds="$50/$100", stacks="$10,000",
-        max_tokens=16, temperature=0.0, top_p=1.0,
+        max_tokens=1, temperature=0.0, top_p=1.0,
         gpu_layers=-1, threads=None, ctx=512, verbose=False,
         lora_scale=1.0,
     )
@@ -246,9 +229,10 @@ def run_gguf(samples: dict[str, list], base_path: Path,
                     lora_scale=1.0, n_ctx=512, n_gpu_layers=-1, verbose=False)
         pairs = []
         for ex in examples:
-            state = ex["messages"][1]["content"]
-            truth = ex["messages"][2]["content"].strip().lower()
-            pred  = predict(llm, player, state, inf_args).strip().lower()
+            state      = ex["messages"][1]["content"]
+            truth_char = ex["messages"][2]["content"].strip()
+            truth      = char_to_display(truth_char)
+            pred       = predict(llm, player, state, inf_args)
             pairs.append((pred, truth))
         llm.close()
         del llm
@@ -265,33 +249,25 @@ def report(all_results: dict[str, dict[str, list[tuple[str, str]]]],
            samples: dict[str, list],
            metadata: dict[str, list[dict]]) -> None:
     players  = list(samples.keys())
-    variants = list(all_results.keys())   # display labels in run order
+    variants = list(all_results.keys())
     total_n  = sum(len(v) for v in samples.values())
     col_w    = 12
-    vcol_w   = 19   # "exact 75.3%  wtd 84.1%"
+    vcol_w   = 10   # "exact 75.3%"
 
     sep = "=" * (col_w + len(variants) * (vcol_w + 2))
 
     print()
     print(sep)
-    print("Accuracy vs ground truth")
-    print("  exact    = exact string match")
-    print("  weighted = exact for fold/check/call; raise scored by 1-|pred-truth|/truth")
+    print("Accuracy vs ground truth  (exact class match)")
     print(sep)
 
-    # Header
     header = f"{'Player':<{col_w}}"
     for vlabel in variants:
         header += f"  {vlabel:^{vcol_w}}"
     print(header)
-
-    subhdr = f"{'':^{col_w}}"
-    for _ in variants:
-        subhdr += f"  {'exact':>8}  {'weighted':>8}"
-    print(subhdr)
     print("─" * len(sep))
 
-    totals: dict[str, list[float, float]] = {v: [0.0, 0.0] for v in variants}
+    totals: dict[str, int] = {v: 0 for v in variants}
 
     for player in players:
         line = f"{player:<{col_w}}"
@@ -299,20 +275,17 @@ def report(all_results: dict[str, dict[str, list[tuple[str, str]]]],
         for vlabel in variants:
             pairs = all_results[vlabel].get(player)
             if pairs:
-                ex  = sum(p == t for p, t in pairs)
-                wtd = sum(score(p, t) for p, t in pairs)
-                totals[vlabel][0] += ex
-                totals[vlabel][1] += wtd
-                line += f"  {100*ex/n:6.1f}%  {100*wtd/n:6.1f}%"
+                ex = sum(p == t for p, t in pairs)
+                totals[vlabel] += ex
+                line += f"  {100*ex/n:7.1f}%  "
             else:
-                line += f"  {'—':>8}  {'—':>8}"
+                line += f"  {'—':^{vcol_w}}"
         print(line)
 
     print("─" * len(sep))
     tline = f"{'TOTAL':<{col_w}}"
     for vlabel in variants:
-        ex, wtd = totals[vlabel]
-        tline += f"  {100*ex/total_n:6.1f}%  {100*wtd/total_n:6.1f}%"
+        tline += f"  {100*totals[vlabel]/total_n:7.1f}%  "
     print(tline)
 
     # ── Action-type breakdown ─────────────────────────────────────────────────
@@ -338,43 +311,50 @@ def report(all_results: dict[str, dict[str, list[tuple[str, str]]]],
             line += f"  {c:3}/{t} ({100*c/t:5.1f}%)" if t else f"  {'—':^16}"
         print(line)
 
-    # ── Raise sizing analysis ─────────────────────────────────────────────────
+    # ── Raise class analysis ──────────────────────────────────────────────────
     print()
-    print("Raise sizing  (ground truth = raise)")
+    print("Raise class analysis  (ground truth = raise)")
     print("─" * len(sep))
 
     for vlabel in variants:
-        raise_pairs: list[tuple[int | None, int]] = []
+        raise_pairs: list[tuple[str, str]] = []
         for player in players:
             for pred, truth in all_results[vlabel].get(player, []):
-                t_amt = parse_raise_amount(truth)
-                if t_amt is None:
-                    continue
-                raise_pairs.append((parse_raise_amount(pred), t_amt))
+                if action_type(truth) == "raise":
+                    raise_pairs.append((pred, truth))
 
         if not raise_pairs:
             continue
 
         n_raise      = len(raise_pairs)
-        n_type_right = sum(p is not None for p, _ in raise_pairs)
-        both         = [(p, t) for p, t in raise_pairs if p is not None]
+        n_pred_raise = sum(action_type(p) == "raise" for p, _ in raise_pairs)
+        n_exact      = sum(p == t for p, t in raise_pairs)
 
-        print(f"  {vlabel}  n={n_raise}  "
-              f"predicted raise: {n_type_right}/{n_raise} ({100*n_type_right/n_raise:.1f}%)")
+        # Within-1-class: compare class indices
+        n_adjacent = 0
+        for pred, truth in raise_pairs:
+            if pred in set(CLASSES) and truth in set(CLASSES):
+                pi, ti = CLASSES.index(pred), CLASSES.index(truth)
+                if abs(pi - ti) <= 1:
+                    n_adjacent += 1
 
-        if both:
-            rel_errs = [abs(p - t) / t for p, t in both]
-            abs_errs = [abs(p - t)     for p, t in both]
-            tols = "  ".join(
-                f"±{int(tol*100)}%: {sum(e<=tol for e in rel_errs)}/{len(both)}"
-                f" ({100*sum(e<=tol for e in rel_errs)/len(both):.0f}%)"
-                for tol in TOLERANCES
-            )
-            print(f"        when both raise  n={len(both)}  "
-                  f"mean rel err: {sum(rel_errs)/len(rel_errs):.1%}  "
-                  f"mean abs: ${sum(abs_errs)/len(abs_errs):.0f}  "
-                  f"median abs: ${sorted(abs_errs)[len(abs_errs)//2]:.0f}")
-            print(f"        {tols}")
+        both_raise = [(p, t) for p, t in raise_pairs if action_type(p) == "raise"]
+
+        print(f"  {vlabel}  n={n_raise}")
+        print(f"    predicted raise : {n_pred_raise}/{n_raise} ({100*n_pred_raise/n_raise:.1f}%)")
+        print(f"    exact class     : {n_exact}/{n_raise} ({100*n_exact/n_raise:.1f}%)")
+        print(f"    within 1 class  : {n_adjacent}/{n_raise} ({100*n_adjacent/n_raise:.1f}%)")
+
+        if both_raise:
+            # Class distribution of errors
+            wrong = [(p, t) for p, t in both_raise if p != t]
+            if wrong:
+                pred_dist = Counter(p for p, _ in wrong).most_common(5)
+                truth_dist = Counter(t for _, t in wrong).most_common(5)
+                print(f"    top wrong preds : "
+                      + "  ".join(f"{l}:{c}" for l, c in pred_dist))
+                print(f"    top truth miss  : "
+                      + "  ".join(f"{l}:{c}" for l, c in truth_dist))
         print()
 
     # ── Street breakdown ──────────────────────────────────────────────────────
@@ -386,25 +366,19 @@ def report(all_results: dict[str, dict[str, list[tuple[str, str]]]],
     for vlabel in variants:
         hdr += f"  {vlabel:^{vcol_w}}"
     print(hdr)
-    subhdr = f"  {'':^10}"
-    for _ in variants:
-        subhdr += f"  {'exact':>8}  {'weighted':>8}"
-    print(subhdr)
     print("─" * len(sep))
 
     for street in ["Preflop", "Flop", "Turn", "River"]:
         line = f"  {street:<10}"
         for vlabel in variants:
-            c = w = n = 0
+            c = n = 0
             for player in players:
                 for i, (pred, truth) in enumerate(all_results[vlabel].get(player, [])):
                     m = metadata.get(player, [{}] * (i + 1))
                     if i < len(m) and m[i].get("street") == street:
                         c += pred == truth
-                        w += score(pred, truth)
                         n += 1
-            line += (f"  {100*c/n:6.1f}%  {100*w/n:6.1f}%" if n
-                     else f"  {'—':>8}  {'—':>8}")
+            line += (f"  {100*c/n:7.1f}%  " if n else f"  {'—':^{vcol_w}}")
         print(line)
 
     # ── Board texture breakdown ───────────────────────────────────────────────
@@ -416,10 +390,6 @@ def report(all_results: dict[str, dict[str, list[tuple[str, str]]]],
     for vlabel in variants:
         hdr += f"  {vlabel:^{vcol_w}}"
     print(hdr)
-    subhdr = f"  {'':^16}"
-    for _ in variants:
-        subhdr += f"  {'exact':>8}  {'weighted':>8}"
-    print(subhdr)
     print("─" * len(sep))
 
     texture_groups = [
@@ -432,19 +402,17 @@ def report(all_results: dict[str, dict[str, list[tuple[str, str]]]],
         ("connected",      lambda m: m["postflop"] and m["connected"]),
     ]
 
-    for label, pred_fn in texture_groups:
-        line = f"  {label:<16}"
+    for tex_label, pred_fn in texture_groups:
+        line = f"  {tex_label:<16}"
         for vlabel in variants:
-            c = w = n = 0
+            c = n = 0
             for player in players:
                 metas = metadata.get(player, [])
                 for i, (pred, truth) in enumerate(all_results[vlabel].get(player, [])):
                     if i < len(metas) and pred_fn(metas[i]):
                         c += pred == truth
-                        w += score(pred, truth)
                         n += 1
-            line += (f"  {100*c/n:6.1f}%  {100*w/n:6.1f}%" if n
-                     else f"  {'—':>8}  {'—':>8}")
+            line += (f"  {100*c/n:7.1f}%  " if n else f"  {'—':^{vcol_w}}")
         print(line)
 
     print(sep)

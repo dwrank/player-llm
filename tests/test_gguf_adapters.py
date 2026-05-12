@@ -25,20 +25,22 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
+from action_classes import CLASSES
 from game_states import ALL_PLAYERS, PREFLOP_FOLD, FLOP_RAISE
 
 GGUF_ADAPTER_DIR = Path("/data/models/qwen2.5-1.5b-instruct/gguf-adapters")
 ADAPTER_SUBDIR   = GGUF_ADAPTER_DIR / "adapters"
 
-VALID_ACTIONS = {"fold", "check", "call"}
+_VALID_LABELS  = set(CLASSES)
+_RAISE_LABELS  = set(CLASSES[3:])
 
 
 def is_valid(action: str) -> bool:
-    a = action.strip().lower()
-    if a in VALID_ACTIONS:
-        return True
-    parts = a.split()
-    return len(parts) == 2 and parts[0] == "raise" and parts[1].lstrip("$").isdigit()
+    return action.strip() in _VALID_LABELS
+
+
+def is_raise(action: str) -> bool:
+    return action.strip() in _RAISE_LABELS
 
 
 def test_base(quant: str, failures_ref: list) -> None:
@@ -62,7 +64,7 @@ def test_base(quant: str, failures_ref: list) -> None:
 
     args = argparse.Namespace(
         blinds="$50/$100", stacks="$10,000",
-        max_tokens=16, temperature=0.0, top_p=1.0,
+        max_tokens=1, temperature=0.0, top_p=1.0,
         gpu_layers=-1, threads=None, ctx=512, verbose=False,
         lora_scale=1.0,
     )
@@ -102,7 +104,7 @@ def test_base(quant: str, failures_ref: list) -> None:
         for player in ALL_PLAYERS:
             action = results[player][state]
             valid  = is_valid(action)
-            ok     = action == "fold" if not check_raise else action.startswith("raise")
+            ok     = action == "fold" if not check_raise else is_raise(action)
             status = "OK" if (valid and ok) else "FAIL"
             if not (valid and ok):
                 failures_ref[0] += 1
@@ -133,7 +135,7 @@ def main() -> None:
 
     mrwhite_args = argparse.Namespace(
         blinds="$50/$100", stacks="$10,000",
-        max_tokens=16, temperature=0.0, top_p=1.0,
+        max_tokens=1, temperature=0.0, top_p=1.0,
         gpu_layers=-1, threads=None, ctx=512, verbose=False,
         lora_scale=1.0,
     )
@@ -155,14 +157,14 @@ def main() -> None:
         action = predict(llm, "MrWhite", FLOP_RAISE, mrwhite_args)
         llm.close()
         del llm
-        is_raise = action.startswith("raise")
+        action_is_raise = is_raise(action)
         if quant in ("Q8_0", "f16"):
-            status = "OK" if is_raise else "FAIL"
-            if not is_raise:
+            status = "OK" if action_is_raise else "FAIL"
+            if not action_is_raise:
                 failures[0] += 1
         else:
             # Q4_K_M may check after accumulated VRAM pressure — document, don't fail
-            status = "OK" if is_raise else "NOTE"
+            status = "OK" if action_is_raise else "NOTE"
         print(f"  {status}  MrWhite + {quant:<6} base → {action}")
 
     print()

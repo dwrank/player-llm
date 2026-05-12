@@ -1,0 +1,75 @@
+Variants : gguf-q8
+Loading eval split (seed=42, split=0.1) ...
+llama_context: n_ctx_seq (512) < n_ctx_train (32768) -- the full capacity of the model will not be utilized
+Sampled 6807 examples across 7 players (1000 per player max)
+
+── GGUF Q8+lora ────────────────────────────────────────────────
+  GGUF Q8+lora   MrWhite      exact 738/807 (91.4%)
+llama_context: n_ctx_seq (512) < n_ctx_train (32768) -- the full capacity of the model will not be utilized
+  GGUF Q8+lora   MrPink       exact 916/1000 (91.6%)
+llama_context: n_ctx_seq (512) < n_ctx_train (32768) -- the full capacity of the model will not be utilized
+  GGUF Q8+lora   Pluribus     exact 833/1000 (83.3%)
+llama_context: n_ctx_seq (512) < n_ctx_train (32768) -- the full capacity of the model will not be utilized
+  GGUF Q8+lora   MrBlue       exact 898/1000 (89.8%)
+llama_context: n_ctx_seq (512) < n_ctx_train (32768) -- the full capacity of the model will not be utilized
+  GGUF Q8+lora   MrOrange     exact 881/1000 (88.1%)
+llama_context: n_ctx_seq (512) < n_ctx_train (32768) -- the full capacity of the model will not be utilized
+  GGUF Q8+lora   Eddie        exact 893/1000 (89.3%)
+llama_context: n_ctx_seq (512) < n_ctx_train (32768) -- the full capacity of the model will not be utilized
+  GGUF Q8+lora   Bill         exact 909/1000 (90.9%)
+
+
+========================
+Accuracy vs ground truth  (exact class match)
+========================
+Player        GGUF Q8+lora
+────────────────────────
+MrWhite          91.4%  
+MrPink           91.6%  
+Pluribus         83.3%  
+MrBlue           89.8%  
+MrOrange         88.1%  
+Eddie            89.3%  
+Bill             90.9%  
+────────────────────────
+TOTAL            89.1%  
+
+Exact match by action type
+────────────────────────
+  action      GGUF Q8+lora  
+  fold      2905/3010 ( 96.5%)
+  call      520/632 ( 82.3%)
+  check     780/922 ( 84.6%)
+  raise     1863/2243 ( 83.1%)
+
+Raise class analysis  (ground truth = raise)
+────────────────────────
+  GGUF Q8+lora  n=2243
+    predicted raise : 2029/2243 (90.5%)
+    exact class     : 1863/2243 (83.1%)
+    within 1 class  : 1979/2243 (88.2%)
+    top wrong preds : 2bb:40  2.5bb:38  1/3 pot:22  1/2 pot:12  pot:12
+    top truth miss  : 2.5bb:40  2bb:23  1/2 pot:18  3bb:18  pot:15
+
+
+Accuracy by street
+────────────────────────
+  street      GGUF Q8+lora
+────────────────────────
+  Preflop        93.2%  
+  Flop           82.0%  
+  Turn           82.3%  
+  River          79.1%  
+
+Accuracy by board texture  (flop / turn / river)
+────────────────────────
+  texture           GGUF Q8+lora
+────────────────────────
+  unpaired             82.2%  
+  paired               79.5%  
+  rainbow              83.6%  
+  two-tone             81.1%  
+  flush possible       79.9%  
+  unconnected          85.2%  
+  connected            80.9%  
+========================
