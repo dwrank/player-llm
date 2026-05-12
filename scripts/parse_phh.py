@@ -67,8 +67,9 @@ class GameState:
     contrib: list          # chips committed this street per player
     current_bet: float     # largest bet/raise total this street
     folded: set
-    street_actions: list   # (player_idx, readable_str) for actions so far this street
+    street_actions: list   # (player_idx, readable_str, pot_before) for actions so far this street
     positions: dict        # 0-based player index → position name e.g. "BTN"
+    prev_streets: list     # [(street_name, [(pidx, act_str, pot_before), ...]), ...]
 
 
 @dataclass
@@ -244,6 +245,7 @@ def iter_decisions(hand: PHHHand) -> Iterator[Decision]:
     board: list[str] = []
     street = "Preflop"
     street_actions: list[tuple] = []
+    prev_streets: list[tuple] = []
     folded: set[int] = set()
 
     for raw in hand.actions:
@@ -261,6 +263,7 @@ def iter_decisions(hand: PHHHand) -> Iterator[Decision]:
                 if 0 <= pidx < n and len(parts) > 3 and "????" not in parts[3]:
                     hole_cards[pidx] = _fmt_cards(parts[3])
             elif parts[1] == "db":
+                prev_streets.append((street, list(street_actions)))
                 board.extend(_fmt_cards(parts[2]).split())
                 if   street == "Preflop": street = "Flop"
                 elif street == "Flop":    street = "Turn"
@@ -301,6 +304,7 @@ def iter_decisions(hand: PHHHand) -> Iterator[Decision]:
                     folded=set(folded),
                     street_actions=list(street_actions),
                     positions=dict(positions),
+                    prev_streets=list(prev_streets),
                 ),
                 action=_normalize(verb, parts, to_call),
             )
@@ -558,6 +562,26 @@ def _build_hand_lines(hole_list: list[str], board: list[str]) -> str:
     return lines
 
 
+def _annotate_actions(raw_actions: list[tuple], positions: dict) -> list[tuple[str, str]]:
+    """Convert raw (pidx, act_str, pot_before) tuples → (pos_label, annotated_str) pairs."""
+    result = []
+    for item in (raw_actions or []):
+        pidx, act_str = item[0], item[1]
+        pot_then = item[2] if len(item) > 2 else None
+        pos = positions.get(pidx, f"P{pidx+1}")
+        if act_str.startswith("raise") and pot_then and pot_then > 0:
+            parts_a = act_str.split()
+            if len(parts_a) >= 2:
+                try:
+                    amt  = float(parts_a[1].replace(",", ""))
+                    frac = amt / pot_then
+                    act_str = f"raise {int(amt):,} ({frac:.2f}x pot)"
+                except ValueError:
+                    pass
+        result.append((pos, act_str))
+    return result
+
+
 def make_input(
     player_name: str,
     street: str,
@@ -570,6 +594,7 @@ def make_input(
     others: list[tuple[str, float]],
     street_actions: list[tuple[str, str]],
     bb: float = 100.0,
+    prev_streets: list[tuple[str, list[tuple[str, str]]]] | None = None,
 ) -> dict[str, str]:
     """
     Build model input messages from raw game parameters.
@@ -591,6 +616,7 @@ def make_input(
                         Raise strings may include pot-fraction annotations, e.g.
                         "raise 500 (0.50x pot)".
         bb:             Big blind size in dollars (default 100).
+        prev_streets:   Completed prior streets as [(street_name, [(pos, act), ...]), ...].
 
     Returns:
         {"system": str, "user": str}  — ready for chat-template assembly.
@@ -604,6 +630,12 @@ def make_input(
         history = ", ".join(f"{pos} {act}" for pos, act in street_actions)
     else:
         history = "first to act"
+
+    prior_history = ""
+    for sname, sacts in (prev_streets or []):
+        if sacts:
+            line = ", ".join(f"{pos} {act}" for pos, act in sacts)
+            prior_history += f"{sname}: {line}\n"
 
     hand_lines = _build_hand_lines(hole_cards, board)
     cards_str  = " ".join(hole_cards) if hole_cards else "?? ??"
@@ -619,6 +651,7 @@ def make_input(
         f"SPR: {spr:.1f}\n"
         f"To call: {call_str}\n"
         f"Other active players: {others_str}\n"
+        f"{prior_history}"
         f"Action so far this street: {history}\n"
         "Your action?"
     )
@@ -642,21 +675,11 @@ def decision_to_sft(d: Decision, bb: float = 100.0) -> dict:
         if i != d.player_idx and i not in s.folded
     ]
 
-    street_actions = []
-    for item in (s.street_actions or []):
-        pidx, act_str = item[0], item[1]
-        pot_then = item[2] if len(item) > 2 else None
-        pos = s.positions.get(pidx, f"P{pidx+1}")
-        if act_str.startswith("raise") and pot_then and pot_then > 0:
-            parts_a = act_str.split()
-            if len(parts_a) >= 2:
-                try:
-                    amt  = float(parts_a[1].replace(",", ""))
-                    frac = amt / pot_then
-                    act_str = f"raise {int(amt):,} ({frac:.2f}x pot)"
-                except ValueError:
-                    pass
-        street_actions.append((pos, act_str))
+    street_actions = _annotate_actions(s.street_actions, s.positions)
+    annotated_prev = [
+        (sname, _annotate_actions(sacts, s.positions))
+        for sname, sacts in (s.prev_streets or [])
+    ]
 
     msgs = make_input(
         player_name   = d.player_name,
@@ -670,6 +693,7 @@ def decision_to_sft(d: Decision, bb: float = 100.0) -> dict:
         others        = others,
         street_actions= street_actions,
         bb            = bb,
+        prev_streets  = annotated_prev,
     )
 
     # Convert raw action to single class character

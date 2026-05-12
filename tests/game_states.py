@@ -38,6 +38,7 @@ Your stack: $9,790
 SPR: 20.8
 To call: free (check)
 Other active players: BB $9,790
+Preflop: UTG raise 210 (1.40x pot), HJ fold, CO fold, BTN fold, SB fold, BB call
 Action so far this street: BB check
 Your action?"""
 
