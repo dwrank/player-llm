@@ -50,13 +50,13 @@ def parse_args() -> argparse.Namespace:
 
     g = p.add_argument_group("training")
     g.add_argument("--epochs",      type=int,   default=3)
-    g.add_argument("--batch",       type=int,   default=16,
+    g.add_argument("--batch",       type=int,   default=8,
                    help="Per-device train batch size")
-    g.add_argument("--grad-accum",  type=int,   default=4,
+    g.add_argument("--grad-accum",  type=int,   default=8,
                    help="Gradient accumulation steps")
     g.add_argument("--lr",          type=float, default=2e-4)
     g.add_argument("--max-seq-len", type=int,   default=512,
-                   help="Max sequence length; our examples are ~230 tokens")
+                   help="Max sequence length; examples range 210–380 tokens")
     g.add_argument("--eval-split",  type=float, default=0.1)
     g.add_argument("--seed",        type=int,   default=42)
 

@@ -64,8 +64,8 @@ def parse_args() -> argparse.Namespace:
 
     g = p.add_argument_group("training")
     g.add_argument("--epochs",     type=int,   default=3)
-    g.add_argument("--batch",      type=int,   default=16)
-    g.add_argument("--grad-accum", type=int,   default=2)
+    g.add_argument("--batch",      type=int,   default=8)
+    g.add_argument("--grad-accum", type=int,   default=4)
     g.add_argument("--lr",         type=float, default=1e-4,
                    help="Lower than Stage 1; we're refining style, not learning poker")
     g.add_argument("--max-seq-len", type=int,  default=512)
