@@ -22,6 +22,8 @@ log "Stage 2 complete"
 
 log "=== GGUF: adapter mode ==="
 python "$SCRIPTS/convert_adapters_to_gguf.py" --llama-cpp "$LLAMA"
+python "$SCRIPTS/convert_adapters_to_gguf.py" --llama-cpp "$LLAMA" --skip-existing --base-quant f16
+python "$SCRIPTS/convert_adapters_to_gguf.py" --llama-cpp "$LLAMA" --skip-existing --base-quant Q4_K_M
 log "GGUF adapter mode complete"
 
 log "=== GGUF: merged mode ==="

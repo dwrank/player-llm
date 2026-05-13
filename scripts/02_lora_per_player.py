@@ -68,7 +68,7 @@ def parse_args() -> argparse.Namespace:
     g.add_argument("--grad-accum", type=int,   default=2)
     g.add_argument("--lr",         type=float, default=1e-4,
                    help="Lower than Stage 1; we're refining style, not learning poker")
-    g.add_argument("--max-seq-len", type=int,  default=256)
+    g.add_argument("--max-seq-len", type=int,  default=512)
     g.add_argument("--eval-split",  type=float, default=0.1)
     g.add_argument("--seed",        type=int,   default=42)
 

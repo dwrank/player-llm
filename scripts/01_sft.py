@@ -55,7 +55,7 @@ def parse_args() -> argparse.Namespace:
     g.add_argument("--grad-accum",  type=int,   default=4,
                    help="Gradient accumulation steps")
     g.add_argument("--lr",          type=float, default=2e-4)
-    g.add_argument("--max-seq-len", type=int,   default=256,
+    g.add_argument("--max-seq-len", type=int,   default=512,
                    help="Max sequence length; our examples are ~230 tokens")
     g.add_argument("--eval-split",  type=float, default=0.1)
     g.add_argument("--seed",        type=int,   default=42)

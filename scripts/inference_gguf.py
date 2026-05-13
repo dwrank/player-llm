@@ -117,7 +117,7 @@ def parse_args() -> argparse.Namespace:
     g.add_argument("--threads",    type=int, default=None,
                    help="CPU threads (default: llama.cpp auto-detect)")
     g.add_argument("--ctx",        type=int, default=512,
-                   help="Context window size (our prompts are ~200 tokens)")
+                   help="Context window size (prompts are 210–380 tokens with multi-street history)")
     g.add_argument("--verbose",    action="store_true",
                    help="Show llama.cpp loading output")
 

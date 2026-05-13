@@ -226,7 +226,7 @@ def run_gguf(samples: dict[str, list], base_path: Path,
             continue
 
         llm = Llama(model_path=str(base_path), lora_path=str(lora_path),
-                    lora_scale=1.0, n_ctx=512, n_gpu_layers=-1, verbose=False)
+                    lora_scale=1.0, n_ctx=inf_args.ctx, n_gpu_layers=-1, verbose=False)
         pairs = []
         for ex in examples:
             state      = ex["messages"][1]["content"]
